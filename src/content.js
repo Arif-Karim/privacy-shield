@@ -13,6 +13,7 @@ const BANNER_STYLE = {
 };
 
 let scanTriggered = false;
+let lastPrivacyPolicyUrl = null;
 
 function looksLikePiiInput(input) {
   if (input.matches(PII_SELECTOR)) return true;
@@ -79,6 +80,7 @@ function triggerScan() {
   scanTriggered = true;
 
   const privacyPolicyUrl = findPrivacyPolicyUrl();
+  lastPrivacyPolicyUrl = privacyPolicyUrl;
   console.log(LOG, "PII input detected, requesting scan. domain:", location.hostname, "privacyPolicyUrl:", privacyPolicyUrl);
 
   chrome.runtime.sendMessage(
@@ -110,3 +112,19 @@ const observer = new MutationObserver(() => {
   if (!scanTriggered) scanForPiiInputs();
 });
 observer.observe(document.documentElement, { childList: true, subtree: true });
+
+// Live diagnostic snapshot of this frame, used by the popup's "report an
+// issue" button — re-checks right now rather than relying only on history,
+// since the user may click report on a page that never triggered a scan.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type !== "GET_DIAGNOSTICS") return;
+  const piiInputNow = Array.from(document.querySelectorAll("input")).some(looksLikePiiInput);
+  sendResponse({
+    frameUrl: location.href,
+    scanTriggered,
+    piiInputDetectedNow: piiInputNow,
+    privacyPolicyUrlUsed: lastPrivacyPolicyUrl,
+    privacyPolicyUrlNow: findPrivacyPolicyUrl(),
+    iframeCount: document.querySelectorAll("iframe").length,
+  });
+});

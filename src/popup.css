@@ -48,3 +48,28 @@ body {
 .reasons li {
   margin-bottom: 4px;
 }
+
+.report-btn {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.report-btn:hover {
+  background: #e5e7eb;
+}
+
+.report-status {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #6b7280;
+  min-height: 14px;
+}
