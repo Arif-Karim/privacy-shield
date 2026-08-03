@@ -26,11 +26,23 @@ function findPrivacyPolicyUrl() {
   return match ? match.href : null;
 }
 
+function formatReason(result) {
+  const reason = result.reasons && result.reasons[0];
+  if (!reason) return "";
+  // Heuristic red/green reasons are sentences quoted verbatim from the site's
+  // own policy (written in their voice, "we may share..."). Attribute them
+  // clearly so it doesn't read as Privacy Shield making that statement.
+  if (result.source === "heuristic" && (reason.signal === "red" || reason.signal === "green")) {
+    return `Their privacy policy: "${reason.label}"`;
+  }
+  return reason.label;
+}
+
 function showBanner(result) {
   if (document.getElementById(BANNER_ID)) return;
 
   const style = BANNER_STYLE[result.rating] || BANNER_STYLE.yellow;
-  const reasonText = result.reasons && result.reasons[0] ? result.reasons[0].label : "";
+  const reasonText = formatReason(result);
 
   const banner = document.createElement("div");
   banner.id = BANNER_ID;

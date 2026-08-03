@@ -4,12 +4,16 @@ const STATUS_TEXT = {
   red: "Caution — this site may share or sell your data.",
 };
 
-function renderReasons(reasons) {
+function renderReasons(source, reasons) {
   const list = document.getElementById("reasons");
   list.innerHTML = "";
   for (const reason of reasons || []) {
     const li = document.createElement("li");
-    li.textContent = reason.label;
+    // Heuristic red/green reasons are sentences quoted verbatim from the
+    // site's own policy ("we may share...") — attribute them clearly so it
+    // doesn't read as Privacy Shield making that statement about itself.
+    const isQuote = source === "heuristic" && (reason.signal === "red" || reason.signal === "green");
+    li.textContent = isQuote ? `Their privacy policy: "${reason.label}"` : reason.label;
     list.appendChild(li);
   }
 }
@@ -33,7 +37,7 @@ async function main() {
   const { rating, source, reasons } = result;
   dot.classList.add(rating);
   status.textContent = STATUS_TEXT[rating] + (source === "tosdr" ? " (via ToS;DR)" : " (via keyword scan)");
-  renderReasons(reasons);
+  renderReasons(source, reasons);
 }
 
 main();
