@@ -27,3 +27,27 @@ Rewritten to check for an action word (sell/share/disclose/...) and a
 recipient word (third party/affiliate/marketing/...) anywhere in the same
 sentence instead — see `heuristic.js` and the "sentence-level co-occurrence"
 note in `CODE_WALKTHROUGH.md`.
+
+## najmaa.com.au — 2026-08-03
+
+**Page:** `najmaa.com.au/quote-car/`, step 4 of 6 ("Driver(s) Details" → "Contact details" — email + mobile)
+**Result at time of report:** No banner, no badge — total silence despite a live email/mobile form.
+**Root cause:** this page's entire quote wizard is a third-party widget embedded via a genuine
+cross-origin `<iframe src="https://app.ubind.io/...">` (uBind, an insurance quoting platform).
+Confirmed by inspecting the live DOM: the top-level document has **zero** `<input>` elements;
+all 201 form fields (including the visible email/mobile inputs once the user reaches step 4)
+live inside that iframe. Our content script's manifest entry didn't set `all_frames`, so Chrome
+only ever injected `content.js` into the top frame — it had no way to see the form at all, no
+matter how good the detection heuristic was.
+
+**Fix:** added `"all_frames": true` to the `content_scripts` entry in `manifest.json`, so the
+script now runs inside every frame (including cross-origin ones) on the page. Bonus finding:
+the iframe itself contains a working "Privacy Policy" link back to
+`https://www.najmaa.com.au/privacy-policy/`, so once injection works the existing
+find-link → fetch → heuristic-scan pipeline should work unmodified.
+
+**Why this matters:** third-party embedded quote/checkout widgets (uBind, and similar
+"quote-and-bind" platforms) are extremely common on exactly the kind of lead-gen-adjacent
+sites this tool targets (insurance, finance quote forms). Any site using one would have
+silently defeated the extension until this fix. Worth watching for more iframe-based forms
+as we test more sites.
