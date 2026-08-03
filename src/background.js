@@ -21,25 +21,48 @@ const TOSDR_GRADE_TO_RATING = {
 // something to show when opened; it's cleared whenever the tab navigates.
 const latestByTab = new Map();
 
+// ToS;DR's search endpoint does a text search, not a domain-suffix lookup —
+// querying with a real-world hostname like "www.tiktok.com" or
+// "auth.wikimedia.org" returns zero results even though "tiktok.com" /
+// "wikimedia.org" have ratings. So we try the full hostname first, then
+// progressively strip the leftmost label (auth.wikimedia.org -> wikimedia.org)
+// until something matches or we run out of labels.
+function domainSearchCandidates(domain) {
+  const labels = domain.split(".");
+  const candidates = [domain];
+  for (let i = 1; i < labels.length - 1; i++) {
+    candidates.push(labels.slice(i).join("."));
+  }
+  return candidates;
+}
+
+async function tosdrSearch(query) {
+  const res = await fetch(`https://api.tosdr.org/search/v5/?query=${encodeURIComponent(query)}`);
+  if (!res.ok) {
+    console.log(LOG, "ToS;DR responded", res.status, "for query", query);
+    return null;
+  }
+  const data = await res.json();
+  return data.services || [];
+}
+
 async function lookupTosdr(domain) {
   try {
-    console.log(LOG, "querying ToS;DR for", domain);
-    const res = await fetch(`https://api.tosdr.org/search/v5/?query=${encodeURIComponent(domain)}`);
-    if (!res.ok) {
-      console.log(LOG, "ToS;DR responded", res.status, "- falling back to heuristic");
-      return null;
-    }
-    const data = await res.json();
-    const services = data.services || [];
-    const match = services.find((s) => (s.urls || []).some((u) => u === domain || domain.endsWith(`.${u}`) || u.endsWith(`.${domain}`)));
-    const rating = match && match.rating && TOSDR_GRADE_TO_RATING[match.rating];
-    if (rating) {
-      console.log(LOG, "ToS;DR match:", match.name, "grade", match.rating, "->", rating);
-      return {
-        rating,
-        source: "tosdr",
-        reasons: [{ signal: rating, label: `ToS;DR grade ${match.rating} for ${match.name}` }],
-      };
+    for (const candidate of domainSearchCandidates(domain)) {
+      console.log(LOG, "querying ToS;DR for", candidate);
+      const services = await tosdrSearch(candidate);
+      if (!services) continue;
+
+      const match = services.find((s) => (s.urls || []).some((u) => u === domain || domain.endsWith(`.${u}`) || u.endsWith(`.${domain}`)));
+      const rating = match && match.rating && TOSDR_GRADE_TO_RATING[match.rating];
+      if (rating) {
+        console.log(LOG, "ToS;DR match:", match.name, "grade", match.rating, "->", rating, "(via query", candidate, ")");
+        return {
+          rating,
+          source: "tosdr",
+          reasons: [{ signal: rating, label: `ToS;DR grade ${match.rating} for ${match.name}` }],
+        };
+      }
     }
     console.log(LOG, "no ToS;DR-rated match for", domain, "- falling back to heuristic");
   } catch (err) {
