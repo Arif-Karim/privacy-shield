@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Privacy Shield — Privacy Policy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+    line-height: 1.6;
+    color: #1f2937;
+  }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .updated { color: #6b7280; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 18px; margin-top: 36px; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 10px; }
+  a { color: #2554f0; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e5e7eb; background: #111318; }
+    .updated { color: #9ca3af; }
+    code { background: #1f2430; }
+    a { color: #7c93ff; }
+  }
+</style>
+</head>
+<body>
+  <h1>Privacy Shield — Privacy Policy</h1>
+  <div class="updated">Last updated: 2026-08-03</div>
+
+  <p>Privacy Shield is a browser extension that warns you before you submit
+  your email address or phone number to a website that may share or sell
+  your data. This page explains what the extension does and does not do
+  with your information.</p>
+
+  <h2>What the extension accesses</h2>
+  <ul>
+    <li><strong>Page content on sites you visit.</strong> The extension reads
+      the current page's HTML to detect form fields that look like they
+      collect an email address or phone number, and to look for a link to
+      that site's own privacy policy. This runs locally in your browser.</li>
+    <li><strong>The current site's domain name.</strong> Used to check
+      whether the site already has a public rating from
+      <a href="https://tosdr.org">ToS;DR</a>, a crowdsourced privacy/terms-of-service
+      rating project.</li>
+    <li><strong>The site's own privacy policy page.</strong> If ToS;DR has no
+      rating, the extension fetches the privacy policy page the site itself
+      links to, and scans the text for language indicating the site shares
+      or sells personal data with third parties.</li>
+  </ul>
+
+  <h2>What the extension does NOT do</h2>
+  <ul>
+    <li>It does not collect, store, or transmit the actual information you
+      type into forms (your email address, phone number, name, etc.).</li>
+    <li>It does not track your browsing history.</li>
+    <li>It does not run any analytics or send usage data anywhere.</li>
+    <li>It has no backend server of its own — there is currently no
+      infrastructure operated by the developer that receives data from the
+      extension.</li>
+  </ul>
+
+  <h2>Third parties contacted</h2>
+  <ul>
+    <li><code>api.tosdr.org</code> — queried with only the domain name of
+      the site you're currently on (e.g. <code>example.com</code>), to
+      retrieve a public rating. No personal data is sent.</li>
+    <li><strong>The website you're visiting, and its own privacy policy
+      page</strong> — the extension fetches this page's public text
+      directly from the site to scan it. No personal data is sent in this
+      request beyond a normal page load.</li>
+  </ul>
+
+  <h2>Local storage</h2>
+  <p>The extension does not persist a history of sites you've visited or
+  their ratings. A short-lived, in-memory record of the current tab's
+  result is kept only so the popup can display it, and this is cleared
+  automatically whenever the tab navigates to a new page. Nothing is
+  written to disk beyond your browser's own normal temporary memory for the
+  running extension.</p>
+
+  <h2>"Report an issue" feature</h2>
+  <p>If you click "Report an issue" in the popup, the extension prepares a
+  pre-filled email (page URL, whether a form/privacy link was detected, and
+  the last rating shown) and opens it in your own email client.
+  <strong>Nothing is sent automatically</strong> — you see the full contents
+  and choose whether to send it, exactly like any other email you write.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy or the extension can be sent to
+  <a href="mailto:arifjubairulkarim@gmail.com">arifjubairulkarim@gmail.com</a>.</p>
+</body>
+</html>
