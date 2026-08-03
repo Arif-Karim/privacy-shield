@@ -73,8 +73,7 @@ into forms; it only reads publicly available privacy-policy text and
 performs a lookup by domain name against ToS;DR's public API.
 ```
 
-Link to `PRIVACY_POLICY.md` (needs to be hosted at a public URL — see the
-publishing barriers noted separately).
+Privacy policy URL: https://arif-karim.github.io/privacy-shield/
 
 ## Screenshots
 
