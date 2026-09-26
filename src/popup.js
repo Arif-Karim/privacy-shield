@@ -1,7 +1,7 @@
 const STATUS_TEXT = {
   green: "Looks safe — no strong signal of sharing/selling your data.",
-  yellow: "Not sure — couldn't confirm either way.",
-  red: "Caution — this site may share or sell your data.",
+  yellow: "Mixed signal — may share data for routine operations, but no sign of third-party solicitation.",
+  red: "Caution — this site may share or sell your data to parties who'll contact you directly.",
 };
 
 const REPORT_EMAIL = "arifjubairulkarim@gmail.com";
@@ -9,16 +9,26 @@ const REPORT_EMAIL = "arifjubairulkarim@gmail.com";
 let currentTab = null;
 let latestResult = null;
 
-function renderReasons(source, reasons) {
+function renderReasons(source, reasons, basedOn) {
   const list = document.getElementById("reasons");
   list.innerHTML = "";
   for (const reason of reasons || []) {
     const li = document.createElement("li");
-    // Heuristic red/green reasons are sentences quoted verbatim from the
-    // site's own policy ("we may share...") — attribute them clearly so it
-    // doesn't read as Privacy Shield making that statement about itself.
-    const isQuote = source === "heuristic" && (reason.signal === "red" || reason.signal === "green");
-    li.textContent = isQuote ? `Their privacy policy: "${reason.label}"` : reason.label;
+    // Heuristic/LLM red/amber/green reasons quoted from the site's own
+    // policy ("we may share...") get attributed clearly so it doesn't read
+    // as Privacy Shield making that statement about itself. LLM answers with
+    // no policy page found are inferences, not citations — labeled as such.
+    let text;
+    if (source === "heuristic" && (reason.signal === "red" || reason.signal === "amber" || reason.signal === "green")) {
+      text = `Their privacy policy: "${reason.label}"`;
+    } else if (source === "llm" && basedOn === "policy_text") {
+      text = `Their privacy policy: "${reason.label}"`;
+    } else if (source === "llm" && basedOn === "general_knowledge") {
+      text = `No privacy policy found — based on general knowledge: ${reason.label}`;
+    } else {
+      text = reason.label;
+    }
+    li.textContent = text;
     list.appendChild(li);
   }
 }
@@ -98,10 +108,14 @@ async function main() {
   if (!result) {
     status.textContent = "No email/phone form detected on this page yet.";
   } else {
-    const { rating, source, reasons } = result;
+    const { rating, source, reasons, basedOn } = result;
     dot.classList.add(rating);
-    status.textContent = STATUS_TEXT[rating] + (source === "tosdr" ? " (via ToS;DR)" : " (via keyword scan)");
-    renderReasons(source, reasons);
+    let sourceLabel;
+    if (source === "tosdr") sourceLabel = " (via ToS;DR)";
+    else if (source === "llm") sourceLabel = basedOn === "general_knowledge" ? " (via AI, general knowledge)" : " (via AI analysis)";
+    else sourceLabel = " (via keyword scan)";
+    status.textContent = STATUS_TEXT[rating] + sourceLabel;
+    renderReasons(source, reasons, basedOn);
   }
 
   document.getElementById("reportBtn").addEventListener("click", handleReportClick);

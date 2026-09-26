@@ -1,1 +1,9 @@
 dist/
+
+# Backend (Cloudflare Worker)
+backend/node_modules/
+backend/.wrangler/
+backend/.dev.vars
+
+# Playwright MCP scratch output
+.playwright-mcp/

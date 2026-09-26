@@ -3,7 +3,7 @@
   "name": "Privacy Shield",
   "version": "0.1.0",
   "description": "Warns you before you submit your email or phone number to a site that may share or sell your data.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["activeTab"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js",

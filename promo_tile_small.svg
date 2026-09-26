@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="440" height="280" viewBox="0 0 440 280" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e40af;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="440" height="280" fill="url(#grad1)"/>
+  <text x="32" y="70" font-family="Arial, sans-serif" font-size="42" font-weight="bold" fill="white">Privacy Shield</text>
+  <text x="32" y="120" font-family="Arial, sans-serif" font-size="18" fill="white">Know before you submit.</text>
+  <text x="32" y="145" font-family="Arial, sans-serif" font-size="18" fill="white">Warns you if a site may share your data.</text>
+  <circle cx="340" cy="140" r="40" fill="white" opacity="0.25"/>
+  <circle cx="340" cy="115" r="20" fill="white"/>
+  <path d="M 333 135 L 347 135 L 355 155 L 325 155 Z" fill="white"/>
+</svg>
