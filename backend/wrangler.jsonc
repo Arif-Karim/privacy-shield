@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "privacy-shield-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-15",
+  "observability": {
+    "enabled": true
+  },
+  "kv_namespaces": [
+    { "binding": "RATINGS_KV", "id": "688c65b805cf43b3990ff237c4a07f96" }
+  ],
+  "ratelimits": [
+    {
+      "name": "IP_BURST_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ]
+}
