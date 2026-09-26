@@ -50,19 +50,21 @@
       rating project.</li>
     <li><strong>The site's own privacy policy page.</strong> If ToS;DR has no
       rating, the extension fetches the privacy policy page the site itself
-      links to, and scans the text for language indicating the site shares
-      or sells personal data with third parties.</li>
+      links to. The domain name, together with the text of that public
+      privacy policy page, is sent to the extension's own backend service
+      (see &ldquo;Third parties contacted&rdquo; below) to be analyzed for
+      language indicating the site shares or sells personal data.</li>
   </ul>
 
   <h2>What the extension does NOT do</h2>
   <ul>
     <li>It does not collect, store, or transmit the actual information you
       type into forms (your email address, phone number, name, etc.).</li>
-    <li>It does not track your browsing history.</li>
-    <li>It does not run any analytics or send usage data anywhere.</li>
-    <li>It has no backend server of its own — there is currently no
-      infrastructure operated by the developer that receives data from the
-      extension.</li>
+    <li>It does not track your browsing history or send a record of the
+      sites you visit anywhere. Only the domain of a site with a detected
+      email/phone form, plus that site's public privacy-policy text, is
+      sent for analysis — and only for the purpose of rating that site.</li>
+    <li>It does not run any advertising or third-party analytics.</li>
   </ul>
 
   <h2>Third parties contacted</h2>
@@ -72,17 +74,30 @@
       retrieve a public rating. No personal data is sent.</li>
     <li><strong>The website you're visiting, and its own privacy policy
       page</strong> — the extension fetches this page's public text
-      directly from the site to scan it. No personal data is sent in this
-      request beyond a normal page load.</li>
+      directly from the site. No personal data is sent in this request
+      beyond a normal page load.</li>
+    <li><strong>The Privacy Shield backend service</strong> (a Cloudflare
+      Worker operated by the developer) — when a site has no ToS;DR rating,
+      the domain name and the public privacy-policy text are sent here to
+      be classified. The backend caches the resulting rating by domain so
+      the same site does not have to be re-analyzed for every user. It does
+      not receive anything you type into forms.</li>
+    <li><strong>Anthropic (Claude API)</strong> — the backend service
+      forwards the privacy-policy text (or, if none is found, just the
+      domain name) to Anthropic's Claude model to produce the rating.
+      Anthropic processes this request under its own API terms; the text
+      sent is the site's public privacy policy, not your personal data.</li>
   </ul>
 
   <h2>Local storage</h2>
   <p>The extension does not persist a history of sites you've visited or
-  their ratings. A short-lived, in-memory record of the current tab's
-  result is kept only so the popup can display it, and this is cleared
-  automatically whenever the tab navigates to a new page. Nothing is
-  written to disk beyond your browser's own normal temporary memory for the
-  running extension.</p>
+  their ratings on your device. A short-lived, in-memory record of the
+  current tab's result is kept only so the popup can display it, and this is
+  cleared automatically whenever the tab navigates to a new page. On the
+  backend service, only the computed rating for a domain (green/yellow/red
+  plus supporting reasons) is cached, keyed by domain name, so repeat
+  visitors don't trigger a fresh analysis; this cache holds no information
+  about who requested it.</p>
 
   <h2>"Report an issue" feature</h2>
   <p>If you click "Report an issue" in the popup, the extension prepares a

@@ -32,8 +32,9 @@ paragraphs of legal text nobody reads before hitting submit.
 WHAT IT DOES
 - Watches for email/phone fields as you browse.
 - Checks the site's public rating on ToS;DR (a crowdsourced privacy/ToS
-  grading project), or scans the site's own privacy policy text if no
-  rating exists yet.
+  grading project). If there's no rating yet, it sends the site's domain
+  and its public privacy-policy text to Privacy Shield's own backend, which
+  uses AI (the Claude API) to classify the policy.
 - Shows a color-coded result — green (no sharing signal found), yellow
   (couldn't confirm either way), or red (found language suggesting your
   data may be shared or sold) — with the actual matched sentence from
@@ -41,8 +42,8 @@ WHAT IT DOES
 
 WHAT IT DOESN'T DO
 - Doesn't collect, store, or transmit what you actually type into forms.
-- Doesn't track your browsing history.
-- No account, no sign-up, no analytics.
+- Doesn't track your browsing history or record which sites you visit.
+- No account, no sign-up, no advertising or third-party analytics.
 
 Found a site where this doesn't work right? Use the "Report an issue"
 button in the popup — it opens a pre-filled email with diagnostic details
@@ -63,15 +64,27 @@ host permissions. Suggested text:
 
 ```
 Privacy Shield needs to read the content of any site you visit in order to:
-(1) detect email/phone input fields as you browse, and (2) fetch and read
-that site's own publicly-posted privacy policy page to evaluate its
-data-sharing language. Because the tool must work on whichever site you
-choose to fill out a form on — which can't be known in advance — it
-requests access to all sites rather than a fixed list. It does not collect,
-transmit, or store your browsing history or the personal data you type
-into forms; it only reads publicly available privacy-policy text and
-performs a lookup by domain name against ToS;DR's public API.
+(1) detect email/phone input fields as you browse, and (2) fetch that
+site's own publicly-posted privacy policy page to evaluate its data-sharing
+language. Because the tool must work on whichever site you choose to fill
+out a form on — which can't be known in advance — it requests access to all
+sites rather than a fixed list.
+
+When a site has no existing ToS;DR rating, the site's domain name and the
+text of its public privacy policy are sent to the extension's own backend
+service (a Cloudflare Worker), which forwards them to the Claude API
+(Anthropic) to classify the policy, and caches the resulting rating by
+domain. The extension does NOT collect, transmit, or store your browsing
+history or the personal data you type into forms — only the public
+privacy-policy text and the domain name are sent, solely to rate that site.
 ```
+
+Data-use disclosures to select on the dashboard's data-collection form:
+- "Website content" — IS handled/transmitted (the public privacy-policy
+  text is sent to the backend / Claude for analysis). Disclose it.
+- Do NOT check personally identifiable information, financial info,
+  authentication info, personal communications, location, browsing history,
+  or user activity — none of those are collected.
 
 Privacy policy URL: https://arif-karim.github.io/privacy-shield/
 
