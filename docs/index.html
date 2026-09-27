@@ -31,73 +31,62 @@
 </head>
 <body>
   <h1>Privacy Shield — Privacy Policy</h1>
-  <div class="updated">Last updated: 2026-08-03</div>
+  <div class="updated">Last updated: 2026-09-27</div>
 
-  <p>Privacy Shield is a browser extension that warns you before you submit
-  your email address or phone number to a website that may share or sell
-  your data. This page explains what the extension does and does not do
-  with your information.</p>
+  <p>Privacy Shield is a browser extension that warns you before you give
+  your phone number to a website that may sell it or pass it to other
+  companies who will contact you. This page explains what the extension does
+  and does not do with your information.</p>
 
   <h2>What the extension accesses</h2>
   <ul>
     <li><strong>Page content on sites you visit.</strong> The extension reads
-      the current page's HTML to detect form fields that look like they
-      collect an email address or phone number, and to look for a link to
-      that site's own privacy policy. This runs locally in your browser.</li>
-    <li><strong>The current site's domain name.</strong> Used to check
-      whether the site already has a public rating from
-      <a href="https://tosdr.org">ToS;DR</a>, a crowdsourced privacy/terms-of-service
-      rating project.</li>
-    <li><strong>The site's own privacy policy page.</strong> If ToS;DR has no
-      rating, the extension fetches the privacy policy page the site itself
-      links to. The domain name, together with the text of that public
-      privacy policy page, is sent to the extension's own backend service
-      (see &ldquo;Third parties contacted&rdquo; below) to be analyzed for
-      language indicating the site shares or sells personal data.</li>
+      the current page's HTML, locally in your browser, to detect form fields
+      that ask for a phone number and to find the link to that site's own
+      privacy policy. Nothing is sent anywhere unless a phone-number field is
+      found.</li>
+    <li><strong>When a phone-number field is found:</strong> the extension
+      sends two things to the Privacy Shield backend: the domain name of the
+      page (e.g. <code>example.com</code>) and the address of the privacy
+      policy link on that page. That's all — never the page itself and never
+      anything you type.</li>
   </ul>
 
   <h2>What the extension does NOT do</h2>
   <ul>
     <li>It does not collect, store, or transmit the actual information you
-      type into forms (your email address, phone number, name, etc.).</li>
-    <li>It does not track your browsing history or send a record of the
-      sites you visit anywhere. Only the domain of a site with a detected
-      email/phone form, plus that site's public privacy-policy text, is
-      sent for analysis — and only for the purpose of rating that site.</li>
+      type into forms (your phone number, email address, name, etc.).</li>
+    <li>It does not track your browsing history. Only the domain and privacy
+      policy address of a page with a phone-number field are sent, and only
+      to rate that site.</li>
     <li>It does not run any advertising or third-party analytics.</li>
   </ul>
 
   <h2>Third parties contacted</h2>
   <ul>
-    <li><code>api.tosdr.org</code> — queried with only the domain name of
-      the site you're currently on (e.g. <code>example.com</code>), to
-      retrieve a public rating. No personal data is sent.</li>
-    <li><strong>The website you're visiting, and its own privacy policy
-      page</strong> — the extension fetches this page's public text
-      directly from the site. No personal data is sent in this request
-      beyond a normal page load.</li>
     <li><strong>The Privacy Shield backend service</strong> (a Cloudflare
-      Worker operated by the developer) — when a site has no ToS;DR rating,
-      the domain name and the public privacy-policy text are sent here to
-      be classified. The backend caches the resulting rating by domain so
-      the same site does not have to be re-analyzed for every user. It does
-      not receive anything you type into forms.</li>
-    <li><strong>Anthropic (Claude API)</strong> — the backend service
-      forwards the privacy-policy text (or, if none is found, just the
-      domain name) to Anthropic's Claude model to produce the rating.
-      Anthropic processes this request under its own API terms; the text
-      sent is the site's public privacy policy, not your personal data.</li>
+      Worker operated by the developer) — receives the domain and privacy
+      policy address described above. The backend itself downloads that
+      public privacy policy page from the website, rates it, and caches the
+      rating per site so it doesn't have to be re-analyzed for every user.
+      It re-checks the policy periodically and re-rates it if the text
+      changes. Your IP address is used, and kept for about a day, only to
+      rate-limit requests and prevent abuse.</li>
+    <li><strong>Anthropic (Claude API)</strong> — the backend sends the
+      public privacy policy text to Anthropic's Claude model to produce the
+      rating. Anthropic processes this request under its own API terms; the
+      text sent is the website's public privacy policy, not your personal
+      data.</li>
   </ul>
 
   <h2>Local storage</h2>
-  <p>The extension does not persist a history of sites you've visited or
-  their ratings on your device. A short-lived, in-memory record of the
-  current tab's result is kept only so the popup can display it, and this is
-  cleared automatically whenever the tab navigates to a new page. On the
-  backend service, only the computed rating for a domain (green/yellow/red
-  plus supporting reasons) is cached, keyed by domain name, so repeat
-  visitors don't trigger a fresh analysis; this cache holds no information
-  about who requested it.</p>
+  <p>The extension does not store a history of sites you've visited or their
+  ratings on your device. A short-lived, in-memory record of the current
+  tab's result is kept only so the popup can display it, and it is cleared
+  automatically whenever the tab navigates to a new page. On the backend,
+  only the computed rating for each site (green/yellow/red plus the policy
+  sentences supporting it) is cached, keyed by the site's domain; this cache
+  holds no information about who requested it.</p>
 
   <h2>"Report an issue" feature</h2>
   <p>If you click "Report an issue" in the popup, the extension prepares a

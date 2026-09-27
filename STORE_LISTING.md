@@ -13,36 +13,40 @@ Privacy Shield
 ## Summary / short description (max 132 chars)
 
 ```
-Warns you before you submit your email or phone to a site that may share or sell your data.
+Warns you before you give your phone number to a site that may sell it or pass it to companies that will call you.
 ```
-(91 chars)
+(113 chars)
 
 ## Detailed description
 
 ```
-Privacy Shield checks whether a website is likely to share or sell your
-email address or phone number before you submit a form.
+Privacy Shield warns you before you type your phone number into a website
+that may sell it, or pass it to other companies who will call and text you.
 
 WHY THIS EXISTS
-Lots of sites — especially quote/lead-gen forms (insurance, solar, home
-services) — legally share your contact details with a network of partners
-once you submit them. Their privacy policy usually says so, buried in
-paragraphs of legal text nobody reads before hitting submit.
+Lots of sites — especially quote/lead-gen forms (insurance, solar, loans,
+home services) — pass your phone number to a network of "partners" the
+moment you hit submit. Their privacy policy usually says so, buried in
+paragraphs of legal text nobody reads. That's how a single quote request
+turns into weeks of sales calls — and how numbers end up on lists that
+scammers buy.
 
 WHAT IT DOES
-- Watches for email/phone fields as you browse.
-- Checks the site's public rating on ToS;DR (a crowdsourced privacy/ToS
-  grading project). If there's no rating yet, it sends the site's domain
-  and its public privacy-policy text to Privacy Shield's own backend, which
-  uses AI (the Claude API) to classify the policy.
-- Shows a color-coded result — green (no sharing signal found), yellow
-  (couldn't confirm either way), or red (found language suggesting your
-  data may be shared or sold) — with the actual matched sentence from
-  their policy as evidence, not just a generic warning.
+- Notices when a form asks for your phone number.
+- Reads that site's own privacy policy with AI (the Claude API) and tells
+  you, in plain English, who your number may end up with:
+  red — the site may sell it or share it with companies that will contact you
+  yellow — the site may call or text you itself, or the policy is unclear
+  green — your details only go to companies working for the site
+- Shows the actual sentence from their policy as evidence, with a link to
+  read the whole thing.
+- If a site's policy can't be read, it tells you so and shows what to look
+  for yourself instead of guessing.
 
 WHAT IT DOESN'T DO
-- Doesn't collect, store, or transmit what you actually type into forms.
-- Doesn't track your browsing history or record which sites you visit.
+- Never reads, stores or sends what you type into forms.
+- Doesn't track your browsing history. Only a site's domain and privacy
+  policy link are sent, and only when a phone-number field appears.
 - No account, no sign-up, no advertising or third-party analytics.
 
 Found a site where this doesn't work right? Use the "Report an issue"
@@ -57,34 +61,54 @@ Chrome Web Store category options at submission time — categories have
 changed over the years, so pick the closest match in the dashboard dropdown
 rather than relying on this label being exact).
 
-## Privacy practices tab (required for the `<all_urls>` host permission)
+## Privacy practices tab
 
-Chrome Web Store review requires a plain-language justification for broad
-host permissions. Suggested text:
+Permissions requested: `activeTab`, host permission for the Privacy Shield
+backend only, and a content script on all sites.
+
+**Host permission / content script justification:**
 
 ```
-Privacy Shield needs to read the content of any site you visit in order to:
-(1) detect email/phone input fields as you browse, and (2) fetch that
-site's own publicly-posted privacy policy page to evaluate its data-sharing
-language. Because the tool must work on whichever site you choose to fill
-out a form on — which can't be known in advance — it requests access to all
-sites rather than a fixed list.
+Privacy Shield's content script runs on every site so it can notice when a
+form asks for a phone number — the tool has to work on whichever site the
+user fills in a form, which can't be known in advance. The script only
+reads the page locally to find phone-number fields and the page's privacy
+policy link. When one is found, the extension sends the page's domain name
+and the privacy policy link to our own backend (the only host permission
+requested), which downloads that public policy itself and rates it with the
+Claude API. Nothing the user types into forms is read or sent.
+```
 
-When a site has no existing ToS;DR rating, the site's domain name and the
-text of its public privacy policy are sent to the extension's own backend
-service (a Cloudflare Worker), which forwards them to the Claude API
-(Anthropic) to classify the policy, and caches the resulting rating by
-domain. The extension does NOT collect, transmit, or store your browsing
-history or the personal data you type into forms — only the public
-privacy-policy text and the domain name are sent, solely to rate that site.
+**activeTab justification:**
+
+```
+Lets the popup show the rating for the tab the user is looking at when they
+click the toolbar icon.
+```
+
+**Remote code justification:**
+
+```
+The extension does not download or execute any remote code. It only
+receives JSON ratings from its own backend.
+```
+
+**Single purpose description:**
+
+```
+Privacy Shield warns users before they give their phone number to a website
+whose privacy policy says it may sell the number or pass it to other
+companies that will contact them.
 ```
 
 Data-use disclosures to select on the dashboard's data-collection form:
-- "Website content" — IS handled/transmitted (the public privacy-policy
-  text is sent to the backend / Claude for analysis). Disclose it.
+- **"Web history"** — declare it: the domain of a page with a phone-number
+  field is sent to the backend (to rate that site). Being explicit here is
+  safer in review than under-declaring.
+- **"Website content"** — declare it: the page's privacy policy link is sent.
 - Do NOT check personally identifiable information, financial info,
-  authentication info, personal communications, location, browsing history,
-  or user activity — none of those are collected.
+  authentication info, personal communications, location, or user
+  activity — none of those are collected.
 
 Privacy policy URL: https://arif-karim.github.io/privacy-shield/
 

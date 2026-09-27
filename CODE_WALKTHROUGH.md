@@ -1,121 +1,128 @@
 # Code Walkthrough
 
-Read these files in this order — each one hands off to the next.
+Two halves: the **extension** (runs in the user's browser) and the
+**backend** (a Cloudflare Worker that reads privacy policies and caches
+ratings). Read them in this order — each one hands off to the next.
 
-## 1. `manifest.json` — the table of contents
+```
+page with a phone field
+  → content.js      notices it, finds the privacy policy link
+  → background.js   sends {domain, policyUrl} to the backend
+  → backend         fetches the policy itself, rates it (or serves the cached rating)
+  → background.js   sets the toolbar icon, stores the result for the popup
+  → content.js      shows a banner for red / unknown
+  → popup.js        shows the details when the icon is clicked
+```
+
+## Extension
+
+### 1. `manifest.json` — the table of contents
 
 The only file Chrome reads directly. It tells the browser what every other file
 is and when it runs:
 
 ```json
 "background": { "service_worker": "src/background.js" }   → runs invisibly, always
-"content_scripts": [{ "js": ["src/content.js"] }]           → runs inside every page you visit
+"content_scripts": [{ "js": ["src/content.js"] }]           → runs inside every page you visit (all frames)
 "action": { "default_popup": "src/popup.html" }              → shown when you click the toolbar icon
+"host_permissions": ["https://privacy-shield-api…workers.dev/*"] → the only server the extension talks to
 ```
 
 If you're ever unsure *when* a file runs, this is the file to check.
 
-## 2. `src/content.js` — the "eyes" on the page
+### 2. `src/content.js` — the "eyes" on the page
 
-Runs inside the actual webpage, in its own isolated JS world (can read/touch
-the page's DOM, but can't see the page's own JS variables, and vice versa).
+Runs inside the actual webpage (and inside embedded iframes, e.g. third-party
+quote widgets), in its own isolated JS world.
 
-Entry point is at the bottom of the file, outside any function:
-
-```js
-scanForPiiInputs();                     // runs once immediately on page load
-const observer = new MutationObserver() // keeps watching for inputs added later (SPAs, lazy forms)
-```
-
-- `looksLikePiiInput(input)` — is this `<input>` an email/phone field? Checks
-  `type="email"/"tel"` first, then falls back to name/id/autocomplete/placeholder
-  text matching `/email|phone|mobile|tel/i`.
-- `findPrivacyPolicyUrl()` — scans all `<a href>` on the page for link text or
-  href matching `/privacy/i`.
-- `triggerScan()` — once a PII input is found, sends a `SCAN_REQUEST` message
-  (with the domain and privacy policy URL) to the background script via
-  `chrome.runtime.sendMessage`, and once a response comes back, calls
-  `showBanner()`.
-- `showBanner(result)` — builds and injects the on-page colored banner
-  (top-right, fixed position, dismissible). Green auto-dismisses after 6s;
-  yellow/red stay until closed.
-
-This file never makes network calls itself — it only detects and asks.
-
-## 3. `src/background.js` — the "brain"
-
-The service worker: no DOM, no visible UI, just listens for messages and runs
-the actual scoring pipeline. Start at the bottom:
+Entry point is at the bottom of the file:
 
 ```js
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => { ... })
+scanForPhoneInputs();                   // runs once immediately on page load
+const observer = new MutationObserver() // keeps watching for inputs added later (multi-step wizards, SPAs)
 ```
 
-Two message types come in:
+- `looksLikePhoneInput(input)` — is this `<input>` a phone field? Checks
+  `type="tel"` first, then name/id/autocomplete/placeholder/aria-label for
+  phone/mobile/tel. **Email-only forms deliberately trigger nothing** — the
+  risk this extension targets is your number reaching companies that call you.
+- `findPrivacyPolicyUrl()` — the first `<a href>` whose text or href mentions
+  privacy.
+- `triggerScan()` — once a phone field is found, sends a `SCAN_REQUEST`
+  (domain + privacy policy URL) to the background script.
+- `showBanner(result)` — only for **red** and **unknown**; green/yellow just
+  change the toolbar icon. Built with `textContent` only, never `innerHTML`:
+  quoted policy text comes from a third-party site and must not be able to
+  inject markup into the page. Auto-dismisses (red 14s, unknown 20s).
 
-- **`SCAN_REQUEST`** (from `content.js`) — calls `getRating(domain, privacyPolicyUrl)`,
-  which is the decision pipeline, read top-to-bottom:
-  1. `lookupTosdr(domain)` — ask the ToS;DR API (`api.tosdr.org/search/v5`) if
-     this domain already has a crowdsourced grade (A–E, mapped to green/yellow/red).
-  2. `scanPrivacyPolicy(privacyPolicyUrl)` — if ToS;DR has nothing, fetch the
-     privacy policy page ourselves and run the keyword scan (`heuristic.js`).
+### 3. `src/background.js` — the messenger
 
-  Whatever comes back gets stored in `latestByTab` (see below), the toolbar
-  badge is set via `setBadge()`, and the result is sent back to `content.js`.
+The service worker. Two messages come in:
 
-- **`GET_LATEST`** (from `popup.js`) — returns whatever's stored in `latestByTab`
-  for the tab the popup asked about.
+- **`SCAN_REQUEST`** (from `content.js`) — `getRating()` POSTs
+  `{domain, policyUrl}` to the backend's `/rate`. If the backend can't be
+  reached it returns `rating: "unknown"` with offline guidance instead of
+  guessing. The result goes into `latestByTab`, the toolbar icon is swapped
+  via `setBadge()` (a dot baked into the icon — see the comment there for why
+  `setIcon({imageData})` rather than `{path}`), and it's sent back to the page.
+- **`GET_LATEST`** (from `popup.js`) — returns `latestByTab` for that tab.
 
-**No caching, by design (for now).** Every `SCAN_REQUEST` re-fetches and
-re-scores from scratch — there's no "have we seen this domain before, skip
-the work" logic. `latestByTab` is a plain in-memory `Map` (`tabId → latest
-result`) that exists *only* so the popup has something to display when
-clicked; it's not a cache in the reuse sense. It's cleared automatically via
-the `chrome.tabs.onUpdated` listener at the bottom whenever a tab navigates,
-so it can never show a stale rating for the wrong page.
+`latestByTab` is an in-memory `Map` (`tabId → result`) only so the popup has
+something to show; it's cleared when the tab navigates. Ratings are cached in
+the backend, not here.
 
-## 4. `src/heuristic.js` — the "is this red or green" logic
+### 4. `src/popup.{html,css,js}` — what you see when you click the icon
 
-Pure functions, no browser APIs — this is why it's easy to unit-test from
-plain Node (`node --input-type=module -e "..."`).
+`popup.js` finds the active tab, asks for `GET_LATEST`, and renders: the
+colored dot, a plain-English status line (`STATUS_TEXT`), a note (why it's
+unknown, or "Based on X's privacy policy" when the form was embedded from
+another company), up to three quoted policy sentences (or the guidance list
+for unknown), and a link to the full policy. The "Report an issue" button
+opens a pre-filled email with diagnostics.
 
-- `stripHtml(html)` — strips `<script>`/`<style>` blocks and all remaining
-  tags, decodes a few common HTML entities, collapses whitespace. Turns raw
-  fetched HTML into plain text.
-- `scorePolicyText(text)` — splits the text into sentences, then for each
-  sentence checks:
-  - `ACTION_RE` — does it contain a data-handling verb (sell/share/disclose/
-    rent/transfer)?
-  - `RECIPIENT_RE` — does it name a recipient/purpose (third party/affiliate/
-    subsidiary/subcontractor/partner/marketing/advertising/broker/sponsor)?
-  - `NEGATION_RE` — is it a "do not / never / won't" claim?
+## Backend (`backend/`)
 
-  Action + recipient + no negation → **red**, and the matched sentence itself
-  becomes the evidence shown in the UI (not a canned label). Action + negation
-  + no recipient → **green** claim. No policy signal either way → **yellow**.
+### 5. `backend/src/index.js` — `/rate`
 
-  This is sentence-level co-occurrence rather than rigid full-phrase regexes,
-  because real policies phrase things like "share Personal Information with
-  our trusted third party providers" — an exact-phrase match like
-  `/share...with third parties/` misses that due to the extra words in between.
+`rate(env, clientIp, domain, policyUrl)` is the whole decision, top to bottom:
 
-## 5. `src/popup.{html,css,js}` — what you see when you click the icon
+1. **No policy link** → `unknown / no_policy_link` (with guidance). No LLM call.
+2. **Rated domain** = the policy URL's host (minus `www.`), so an embedded
+   widget on `app.vendor.com` linking to `insurer.com.au/privacy` is rated as
+   `insurer.com.au`. KV key: `site:<ratedDomain>`.
+3. **Fresh cache hit** (checked < 24h ago, same `PROMPT_VERSION`) → return it.
+4. Otherwise **fetch the policy from the site itself** (the extension never
+   sends policy text — that would let anyone rewrite shared ratings). Blocked
+   / JS-only / error page → `unknown / unreadable` (or keep serving the last
+   good rating if there is one).
+5. **Hash unchanged** → just bump `checkedAt`, return the cached rating.
+6. **New site, changed policy, or new prompt version** → check the daily
+   global and per-IP LLM caps, call Claude (`claude-sonnet-5`, low effort,
+   JSON-schema structured output), store the result. If the model says the
+   page isn't really a privacy policy → `unknown / not_a_policy`.
+   The previous rating is kept in `previous` for the planned
+   "alert me when a site changes its policy" feature.
 
-- `popup.html` — static structure: a colored dot, the domain, a status line,
-  a `<ul>` for reasons.
-- `popup.js` — on open: finds the active tab (`chrome.tabs.query`), asks
-  background for `GET_LATEST` on that tab's ID, then fills in the dot color
-  (`STATUS_TEXT` map), the source (`ToS;DR` vs `keyword scan`), and renders
-  each reason as a list item.
-- `popup.css` — just styling; nothing behavioral.
+**Bump `PROMPT_VERSION` whenever `SYSTEM_PROMPT` or `SCHEMA` changes** — every
+cached rating made under the old version is then re-analyzed on its next
+request instead of being served stale.
+
+### 6. `backend/src/policy.js` — page → text → hash
+
+- `htmlToPolicyText(html)` — drops nav/header/footer/scripts/forms, turns
+  block elements into sentence breaks, prefers `<main>`/`<article>` when it
+  holds most of the text.
+- `policyHash(text)` — SHA-256 of the **sorted set of unique sentences**, not
+  the raw page or text: pages reorder/repeat blocks between loads (A/B tests,
+  CDN variants), which changed a plain hash on 5 of 11 real sites tested.
 
 ## Debugging tips
 
-| Code | Console | How to open it |
+| Code | Logs | How to open it |
 |---|---|---|
 | `content.js` | The page's own DevTools | Right-click the page → Inspect → **Console** |
 | `background.js` | Its own dedicated console | `chrome://extensions` → Privacy Shield card → **"service worker"** link |
+| backend | Worker logs | `cd backend && npx wrangler tail` |
 
-Both log under a `[Privacy Shield]` / `[Privacy Shield:bg]` prefix. In the
-page's **Sources** tab, content scripts show up under a "Content scripts"
-tree in the sidebar — you can set breakpoints directly in `content.js` there.
+Extension logs are prefixed `[Privacy Shield]` / `[Privacy Shield:bg]`. The
+backend logs failed policy fetches (`policy fetch failed <domain> <reason>`).

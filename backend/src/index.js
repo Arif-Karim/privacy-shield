@@ -1,6 +1,18 @@
-const MODEL = "claude-haiku-4-5-20251001";
-const CACHE_TTL_SECONDS = 60 * 60 * 24 * 60; // 60 days — policies don't change often
-const MAX_POLICY_TEXT_CHARS = 15000;
+import { htmlToPolicyText, policyHash } from "./policy.js";
+
+const MODEL = "claude-sonnet-5";
+const EFFORT = "low";
+// Bump whenever SYSTEM_PROMPT or the schema changes: every cached rating
+// made under an older version is re-analyzed on its next request instead of
+// being served stale.
+const PROMPT_VERSION = "2026-09-27.2";
+
+const RECHECK_AFTER_MS = 24 * 60 * 60 * 1000; // re-fetch + re-hash a policy at most once a day
+const UNREADABLE_RETRY_MS = 24 * 60 * 60 * 1000; // how long to remember "couldn't read this"
+const RECORD_TTL_SECONDS = 60 * 60 * 24 * 180; // drop sites nobody has visited in ~6 months
+const MAX_POLICY_CHARS = 200_000; // ~50k tokens: far above any real policy, stops pathological pages
+const MIN_POLICY_CHARS = 500; // less than this is a JS-rendered shell or an error page
+const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DAILY_LLM_CALLS = 500; // hard global spend ceiling regardless of traffic/abuse
 const MAX_DAILY_LLM_CALLS_PER_IP = 20; // stops one IP from burning the whole day's global budget
 
@@ -10,42 +22,96 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, X-Extension-Key",
 };
 
-const SYSTEM_PROMPT = `You are evaluating a website's privacy policy for one specific risk: will submitting your email/phone number here lead to being contacted (spam calls, marketing calls/texts/emails) or having your data sold to third parties, versus routine/legally-required data handling that carries no solicitation risk.
+// Rubric matches the product's actual question: will giving this site your
+// phone number lead to other companies contacting you? Validated against the
+// eval set (scratch eval: Sonnet 5 low effort, 100% on 15 labeled cases).
+const SYSTEM_PROMPT = `You rate a website's privacy policy for one risk: if a person gives this site their phone number or email, will it end up with third parties who contact them (sales calls, lead-gen, marketing lists, data brokers, potential scammers)?
 
-Rate as:
-- "red": the policy discloses selling/renting personal data (any recipient), OR sharing/disclosing data with third parties specifically for marketing/advertising/promotional purposes, joint-marketing arrangements, "lead" networks, or other language indicating the data will be used to contact the person directly. This is the "you'll start getting spam calls" scenario.
-- "yellow": the policy discloses sharing with operational vendors, affiliates, subsidiaries, sub-processors, or international transfers for infrastructure/legal-compliance reasons, with NO indication of marketing/solicitation purpose. Also use this if there's genuinely not enough information to judge either way.
-- "green": the policy explicitly states data is not sold/shared with third parties, with no contradicting disclosure elsewhere.
+- "red": the policy says the site sells, rents, licenses or trades personal/contact data, OR shares it with third parties so those third parties can market to or contact the person (partner/lead networks, joint marketing, list exchanges). A "we don't sell" claim does not cancel a disclosure elsewhere that has this effect.
+- "yellow": no third-party solicitation, but the policy explicitly says the site itself may phone, call or text (SMS) the person for marketing, OR the policy is too vague to tell who receives the data. (The site's own marketing by email, newsletters, ads for its own products, or "marketing communications"/"direct marketing" with no mention of calls or texts does NOT count — people accept those; treat them as green.)
+- "green": data goes only to service providers, affiliates or subcontractors acting on the site's behalf (hosting, payments, delivery, support, legal compliance); no sale and no third-party marketing.
 
-Important: ignore boilerplate that merely describes a legal RIGHT the user has (e.g. "the right to know what categories of third parties we disclose to") — that's describing a right, not making a factual claim about actual company behavior. Only count sentences that are actual first-person claims about what the company does.
+Ignore text that only describes a user's legal rights (e.g. "the right to know the categories of third parties we sell to") — judge only first-person statements of what the company actually does. Ignore navigation menus and page chrome.
+Set is_privacy_policy to false if the text is not actually a privacy policy (e.g. a landing page that only links to one, a login wall, or an unrelated page); the rating is then ignored.
+quoted_evidence must be verbatim sentences from the policy (empty if none).`;
 
-If no policy text is provided, answer based on your general knowledge of the company/domain, and set based_on to "general_knowledge".`;
-
-const TOOL = {
-  name: "rate_privacy_policy",
-  description: "Rate a privacy policy for third-party solicitation/data-sale risk",
-  input_schema: {
-    type: "object",
-    properties: {
-      rating: { type: "string", enum: ["red", "yellow", "green"] },
-      confidence: { type: "number", description: "0 to 1" },
-      reasoning: { type: "string", description: "Brief explanation of the rating" },
-      quoted_evidence: {
-        type: "array",
-        items: { type: "string" },
-        description: "Verbatim sentences from the policy text that support the rating, if any",
-      },
-      based_on: { type: "string", enum: ["policy_text", "general_knowledge"] },
-    },
-    required: ["rating", "confidence", "reasoning", "quoted_evidence", "based_on"],
+const SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["is_privacy_policy", "rating", "confidence", "reasoning", "quoted_evidence"],
+  properties: {
+    is_privacy_policy: { type: "boolean" },
+    rating: { type: "string", enum: ["red", "yellow", "green"] },
+    confidence: { type: "number" },
+    reasoning: { type: "string" },
+    quoted_evidence: { type: "array", items: { type: "string" } },
   },
 };
 
-async function classifyWithClaude(domain, policyText, apiKey) {
-  const userContent = policyText
-    ? `Domain: ${domain}\n\nPrivacy policy text:\n${policyText.slice(0, MAX_POLICY_TEXT_CHARS)}`
-    : `Domain: ${domain}\n\nNo privacy policy text was found on this site. Answer based on general knowledge.`;
+// Shown when we can't give a rating, so the user can check the policy
+// themselves. Served from here so it can change without an extension update.
+const GUIDANCE = {
+  no_policy_link: [
+    "On a form asking for your phone number, a missing privacy policy is a warning sign.",
+    "Before submitting, look for one elsewhere on the site (usually the page footer) and search it for: sell, partners, third parties, marketing.",
+  ],
+  default: [
+    "Open the privacy policy and search it (Cmd/Ctrl+F) for: sell, partners, third parties, marketing, contact you.",
+    "Phrases like \"our network of partners\", \"joint marketing\" or \"may contact you with offers\" mean other companies may call you.",
+    "\"We don't sell your data\" doesn't rule out sharing it with partners who will contact you — keep reading.",
+    "Check the form itself for a pre-ticked box agreeing to be contacted by partners.",
+  ],
+};
 
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
+}
+
+function unknown(reason, extra = {}) {
+  return { rating: "unknown", reason, guidance: GUIDANCE[reason] || GUIDANCE.default, ...extra };
+}
+
+// Only public http(s) pages — the backend fetches this URL itself, so reject
+// anything that could point it at localhost or a raw IP.
+function parsePolicyUrl(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  if (!host.includes(".") || host === "localhost" || /^[\d.]+$/.test(host) || host.includes(":")) return null;
+  url.hash = "";
+  return url;
+}
+
+async function fetchPolicyText(url) {
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; PrivacyShieldBot/1.0; +https://arif-karim.github.io/privacy-shield/)",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { error: `fetch failed: ${err}` };
+  }
+  if (!res.ok) return { error: `status ${res.status}` };
+  const html = (await res.text()).slice(0, 3_000_000);
+  const text = htmlToPolicyText(html);
+  if (text.length < MIN_POLICY_CHARS) return { error: `only ${text.length} chars of text (likely JS-rendered)` };
+  return { text: text.slice(0, MAX_POLICY_CHARS) };
+}
+
+async function classifyWithClaude(domain, policyText, apiKey) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -55,41 +121,116 @@ async function classifyWithClaude(domain, policyText, apiKey) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 8000,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userContent }],
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: "rate_privacy_policy" },
+      messages: [{ role: "user", content: `Domain: ${domain}\n\nPrivacy policy text:\n${policyText}` }],
+      output_config: { effort: EFFORT, format: { type: "json_schema", schema: SCHEMA } },
     }),
   });
 
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Anthropic API error ${res.status}: ${errText}`);
+    throw new Error(`Anthropic API error ${res.status}: ${await res.text()}`);
   }
-
   const data = await res.json();
-  const toolUse = data.content.find((b) => b.type === "tool_use");
-  if (!toolUse) throw new Error("No tool_use block in Claude response");
-  return toolUse.input;
+  if (data.stop_reason !== "end_turn") throw new Error(`unexpected stop_reason: ${data.stop_reason}`);
+  const textBlock = data.content.find((b) => b.type === "text");
+  if (!textBlock) throw new Error("No text block in Claude response");
+  return JSON.parse(textBlock.text);
 }
 
-async function getDailyCallCount(kv, key) {
+async function getCount(kv, key) {
   const raw = await kv.get(key);
   return raw ? parseInt(raw, 10) : 0;
 }
 
-async function incrementDailyCallCount(kv, key, current) {
+async function incrementCount(kv, key, current) {
   // Not atomic, but good enough as a soft spend ceiling — worst case a
   // handful of concurrent requests overshoot slightly, never wildly.
   await kv.put(key, String(current + 1), { expirationTtl: 60 * 60 * 26 });
 }
 
-function jsonResponse(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
-  });
+// What the extension sees: the stored record minus internal fields.
+function publicView(record, extra = {}) {
+  const { hash, promptVersion, model, previous, ...rest } = record;
+  if (rest.rating === "unknown") rest.guidance = GUIDANCE[rest.reason] || GUIDANCE.default;
+  return { ...rest, ...extra };
+}
+
+async function rate(env, clientIp, domain, policyUrlRaw) {
+  if (!policyUrlRaw) return unknown("no_policy_link", { domain });
+
+  const policyUrl = parsePolicyUrl(policyUrlRaw);
+  if (!policyUrl) return unknown("unreadable", { domain });
+
+  // Ratings belong to whoever owns the policy, not the page the form sat on:
+  // a quote widget embedded from app.vendor.com that links to
+  // insurer.com.au/privacy is rated as insurer.com.au.
+  const ratedDomain = policyUrl.hostname.toLowerCase().replace(/^www\./, "");
+  const key = `site:${ratedDomain}`;
+  const now = Date.now();
+  const record = await env.RATINGS_KV.get(key, "json");
+
+  const fresh =
+    record &&
+    record.promptVersion === PROMPT_VERSION &&
+    now - record.checkedAt < (record.rating === "unknown" ? UNREADABLE_RETRY_MS : RECHECK_AFTER_MS);
+  if (fresh) return publicView(record, { cached: true });
+
+  // Always read the policy from the site itself. The extension only tells us
+  // where it is — accepting policy text from clients would let anyone rewrite
+  // the shared rating for any site.
+  const fetched = await fetchPolicyText(record?.policyUrl ? new URL(record.policyUrl) : policyUrl);
+  if (fetched.error) {
+    console.log("policy fetch failed", ratedDomain, fetched.error);
+    if (record && record.rating !== "unknown") {
+      // Keep serving the last good rating; we just couldn't confirm it today.
+      await env.RATINGS_KV.put(key, JSON.stringify({ ...record, checkedAt: now }), { expirationTtl: RECORD_TTL_SECONDS });
+      return publicView(record, { cached: true });
+    }
+    const unreadable = { ...unknown("unreadable"), ratedDomain, policyUrl: policyUrl.toString(), checkedAt: now, promptVersion: PROMPT_VERSION };
+    await env.RATINGS_KV.put(key, JSON.stringify(unreadable), { expirationTtl: RECORD_TTL_SECONDS });
+    return publicView(unreadable, { cached: false });
+  }
+
+  const hash = await policyHash(fetched.text);
+  if (record && record.hash === hash && record.promptVersion === PROMPT_VERSION) {
+    const touched = { ...record, checkedAt: now };
+    await env.RATINGS_KV.put(key, JSON.stringify(touched), { expirationTtl: RECORD_TTL_SECONDS });
+    return publicView(touched, { cached: true });
+  }
+
+  // New site, changed policy, or new prompt version — this costs an LLM call.
+  const today = new Date().toISOString().slice(0, 10);
+  const globalKey = `usage:${today}`;
+  const ipKey = `usage:${today}:ip:${clientIp}`;
+  const callsToday = await getCount(env.RATINGS_KV, globalKey);
+  const ipCallsToday = await getCount(env.RATINGS_KV, ipKey);
+  if (callsToday >= MAX_DAILY_LLM_CALLS || ipCallsToday >= MAX_DAILY_LLM_CALLS_PER_IP) {
+    if (record && record.rating !== "unknown") return publicView(record, { cached: true, outdated: true });
+    return unknown("busy", { ratedDomain, cached: false });
+  }
+
+  const result = await classifyWithClaude(ratedDomain, fetched.text, env.ANTHROPIC_API_KEY);
+  await incrementCount(env.RATINGS_KV, globalKey, callsToday);
+  await incrementCount(env.RATINGS_KV, ipKey, ipCallsToday);
+
+  const base = {
+    ratedDomain,
+    policyUrl: (record?.policyUrl ?? policyUrl.toString()),
+    hash,
+    promptVersion: PROMPT_VERSION,
+    model: MODEL,
+    analyzedAt: now,
+    checkedAt: now,
+    // Kept for the planned "alert me if a site I gave my number to changes
+    // its policy" feature: lets us tell a real rating change from a reword.
+    previous: record && record.rating !== "unknown" ? { rating: record.rating, hash: record.hash, analyzedAt: record.analyzedAt } : record?.previous ?? null,
+  };
+  const next = result.is_privacy_policy
+    ? { ...base, rating: result.rating, confidence: result.confidence, reasoning: result.reasoning, quoted_evidence: result.quoted_evidence }
+    : { ...base, ...unknown("not_a_policy") };
+  await env.RATINGS_KV.put(key, JSON.stringify(next), { expirationTtl: RECORD_TTL_SECONDS });
+  return publicView(next, { cached: false });
 }
 
 export default {
@@ -130,55 +271,15 @@ export default {
     }
 
     const domain = (body.domain || "").toLowerCase().trim();
-    const policyText = typeof body.policyText === "string" ? body.policyText : null;
-
     if (!domain || domain.length > 253 || !/^[a-z0-9.-]+$/.test(domain)) {
       return jsonResponse({ error: "Missing or invalid domain" }, 400);
     }
-
-    const cacheKey = `rating:${domain}`;
-    const cached = await env.RATINGS_KV.get(cacheKey, "json");
-    if (cached) {
-      return jsonResponse({ ...cached, cached: true });
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    const globalKey = `usage:${today}`;
-    const ipKey = `usage:${today}:ip:${clientIp}`;
-
-    const callsToday = await getDailyCallCount(env.RATINGS_KV, globalKey);
-    if (callsToday >= MAX_DAILY_LLM_CALLS) {
-      return jsonResponse({
-        rating: "yellow",
-        confidence: 0,
-        reasoning: "Daily analysis limit reached — try again later.",
-        quoted_evidence: [],
-        based_on: "rate_limited",
-        cached: false,
-      });
-    }
-
-    const ipCallsToday = await getDailyCallCount(env.RATINGS_KV, ipKey);
-    if (ipCallsToday >= MAX_DAILY_LLM_CALLS_PER_IP) {
-      // Distinct from the global limit: this IP specifically has used up its
-      // share, but other users' quota (and money) is untouched.
-      return jsonResponse({
-        rating: "yellow",
-        confidence: 0,
-        reasoning: "Too many new-site analyses from this network today — try again tomorrow.",
-        quoted_evidence: [],
-        based_on: "rate_limited",
-        cached: false,
-      });
-    }
+    const policyUrl = typeof body.policyUrl === "string" && body.policyUrl.length <= 2048 ? body.policyUrl : null;
 
     try {
-      const result = await classifyWithClaude(domain, policyText, env.ANTHROPIC_API_KEY);
-      await incrementDailyCallCount(env.RATINGS_KV, globalKey, callsToday);
-      await incrementDailyCallCount(env.RATINGS_KV, ipKey, ipCallsToday);
-      await env.RATINGS_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: CACHE_TTL_SECONDS });
-      return jsonResponse({ ...result, cached: false });
+      return jsonResponse(await rate(env, clientIp, domain, policyUrl));
     } catch (err) {
+      console.log("rate failed", domain, String(err));
       return jsonResponse({ error: String(err) }, 502);
     }
   },

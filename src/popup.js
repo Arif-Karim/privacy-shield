@@ -1,7 +1,16 @@
 const STATUS_TEXT = {
-  green: "Looks safe — no strong signal of sharing/selling your data.",
-  yellow: "Mixed signal — may share data for routine operations, but no sign of third-party solicitation.",
-  red: "Caution — this site may share or sell your data to parties who'll contact you directly.",
+  green: "Looks safe — your details only go to companies working for this site.",
+  yellow: "Some caution — the site may call or text you itself, or its policy is unclear about who gets your data.",
+  red: "Warning — this site may sell your number or pass it to companies that will contact you.",
+  unknown: "Couldn't check this site's privacy policy automatically. Here's what to look for:",
+};
+
+const UNKNOWN_REASON_TEXT = {
+  no_policy_link: "This page doesn't link to a privacy policy.",
+  unreadable: "The site blocked us from reading its privacy policy.",
+  not_a_policy: "The privacy link doesn't lead to an actual privacy policy.",
+  busy: "Too many new sites checked today — try again later.",
+  backend_unavailable: "Privacy Shield's server couldn't be reached.",
 };
 
 const REPORT_EMAIL = "arifjubairulkarim@gmail.com";
@@ -9,26 +18,21 @@ const REPORT_EMAIL = "arifjubairulkarim@gmail.com";
 let currentTab = null;
 let latestResult = null;
 
-function renderReasons(source, reasons, basedOn) {
+function isSafeHttpUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function renderList(items) {
   const list = document.getElementById("reasons");
   list.innerHTML = "";
-  for (const reason of reasons || []) {
+  for (const item of items) {
     const li = document.createElement("li");
-    // Heuristic/LLM red/amber/green reasons quoted from the site's own
-    // policy ("we may share...") get attributed clearly so it doesn't read
-    // as Privacy Shield making that statement about itself. LLM answers with
-    // no policy page found are inferences, not citations — labeled as such.
-    let text;
-    if (source === "heuristic" && (reason.signal === "red" || reason.signal === "amber" || reason.signal === "green")) {
-      text = `Their privacy policy: "${reason.label}"`;
-    } else if (source === "llm" && basedOn === "policy_text") {
-      text = `Their privacy policy: "${reason.label}"`;
-    } else if (source === "llm" && basedOn === "general_knowledge") {
-      text = `No privacy policy found — based on general knowledge: ${reason.label}`;
-    } else {
-      text = reason.label;
-    }
-    li.textContent = text;
+    li.textContent = item;
     list.appendChild(li);
   }
 }
@@ -47,7 +51,7 @@ function getDiagnostics(tabId) {
 
 function buildReportBody(tab, diag, result) {
   const lines = [
-    "Describe what went wrong (e.g. \"no banner appeared even though there's an email field\"):",
+    "Describe what went wrong (e.g. \"no warning appeared even though the form asks for my phone number\"):",
     "",
     "",
     "--- diagnostics (auto-collected, please leave below) ---",
@@ -60,14 +64,14 @@ function buildReportBody(tab, diag, result) {
       ? `Top-frame diagnostics: unavailable (${diag.error})`
       : [
           `Top-frame scan triggered: ${diag.scanTriggered}`,
-          `Top-frame PII input detected right now: ${diag.piiInputDetectedNow}`,
+          `Top-frame phone input detected right now: ${diag.phoneInputDetectedNow}`,
           `Top-frame privacy policy link (used at scan time): ${diag.privacyPolicyUrlUsed || "none found"}`,
           `Top-frame privacy policy link (right now): ${diag.privacyPolicyUrlNow || "none found"}`,
           `Iframes on page: ${diag.iframeCount}`,
         ].join("\n"),
     "",
     result
-      ? `Last rating shown: ${result.rating} (source: ${result.source || "tosdr"})\nReasons: ${JSON.stringify(result.reasons)}`
+      ? `Last rating shown: ${result.rating}${result.reason ? ` (${result.reason})` : ""} for ${result.ratedDomain || "?"}\nReasoning: ${result.reasoning || "-"}`
       : "Last rating shown: none — no scan result recorded for this tab.",
   ];
   return lines.join("\n");
@@ -97,25 +101,45 @@ async function main() {
   if (!tab || !tab.url || tab.id == null) return;
   currentTab = tab;
 
-  document.getElementById("domain").textContent = new URL(tab.url).hostname;
+  const pageDomain = new URL(tab.url).hostname;
+  document.getElementById("domain").textContent = pageDomain;
 
   const result = await chrome.runtime.sendMessage({ type: "GET_LATEST", tabId: tab.id });
   latestResult = result;
 
   const dot = document.getElementById("dot");
   const status = document.getElementById("status");
+  const note = document.getElementById("note");
 
   if (!result) {
-    status.textContent = "No email/phone form detected on this page yet.";
+    status.textContent = "No phone number field detected on this page yet.";
   } else {
-    const { rating, source, reasons, basedOn } = result;
-    dot.classList.add(rating);
-    let sourceLabel;
-    if (source === "tosdr") sourceLabel = " (via ToS;DR)";
-    else if (source === "llm") sourceLabel = basedOn === "general_knowledge" ? " (via AI, general knowledge)" : " (via AI analysis)";
-    else sourceLabel = " (via keyword scan)";
-    status.textContent = STATUS_TEXT[rating] + sourceLabel;
-    renderReasons(source, reasons, basedOn);
+    dot.classList.add(result.rating);
+    status.textContent = STATUS_TEXT[result.rating] || STATUS_TEXT.unknown;
+
+    const notes = [];
+    if (result.rating === "unknown" && UNKNOWN_REASON_TEXT[result.reason]) notes.push(UNKNOWN_REASON_TEXT[result.reason]);
+    // Forms embedded from another company (quote widgets etc.) are rated by
+    // the privacy policy they link to — say whose policy that was.
+    if (result.ratedDomain && result.ratedDomain !== pageDomain.replace(/^www\./, "")) notes.push(`Based on ${result.ratedDomain}'s privacy policy.`);
+    if (result.outdated) notes.push("Their policy changed recently and hasn't been re-checked yet.");
+    note.textContent = notes.join(" ");
+
+    if (result.rating === "unknown") {
+      renderList(result.guidance || []);
+    } else if (result.quoted_evidence && result.quoted_evidence.length) {
+      // Quotes are in the site's own voice ("we may share..."); attribute them
+      // so they don't read as Privacy Shield's statements.
+      renderList(result.quoted_evidence.slice(0, 3).map((q) => `Their privacy policy: "${q}"`));
+    } else if (result.reasoning) {
+      renderList([result.reasoning]);
+    }
+
+    const link = document.getElementById("policyLink");
+    if (result.policyUrl && isSafeHttpUrl(result.policyUrl)) {
+      link.href = result.policyUrl;
+      link.hidden = false;
+    }
   }
 
   document.getElementById("reportBtn").addEventListener("click", handleReportClick);

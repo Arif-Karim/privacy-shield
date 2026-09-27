@@ -1,16 +1,21 @@
-import { scorePolicyText, stripHtml } from "./heuristic.js";
-
 const LOG = "[Privacy Shield:bg]";
 
-// Primary analysis is now an LLM call through our own backend (Cloudflare
-// Worker), which caches results per-domain so most requests never actually
-// hit Claude. The keyword heuristic is kept only as a last-resort fallback
-// if the backend itself is unreachable — see getRating().
+// All analysis happens in our backend (Cloudflare Worker): it fetches the
+// site's privacy policy itself, rates it with Claude, and caches the rating
+// per site until the policy text changes. The extension only says which page
+// had a phone field and where that page's privacy policy link points.
 const BACKEND_URL = "https://privacy-shield-api.arifjubairulkarim.workers.dev/rate";
 // Soft deterrent against casual abuse, not real security — anyone who
 // unpacks the extension can read this. Real protection is the backend's
-// domain-keyed cache + daily call cap.
+// per-site cache, rate limits and daily call cap.
 const EXTENSION_SHARED_KEY = "a33e66b319417b746328055c1fe72a8a15f88fcfc6c5778862ce084cac281507";
+
+// Used only when the backend can't be reached; normally guidance comes from
+// the backend so it can be updated without shipping a new extension.
+const OFFLINE_GUIDANCE = [
+  "Open the privacy policy and search it (Cmd/Ctrl+F) for: sell, partners, third parties, marketing, contact you.",
+  "Phrases like \"our network of partners\", \"joint marketing\" or \"may contact you with offers\" mean other companies may call you.",
+];
 
 // Rating is shown via a small corner dot baked into the icon itself (see
 // icons/icon{16,48,128}-{red,yellow,green}.png), not the runtime badge API —
@@ -55,138 +60,26 @@ const iconImageDataPromise = (async () => {
   return { base, red, yellow, green };
 })();
 
-const TOSDR_GRADE_TO_RATING = {
-  A: "green",
-  B: "green",
-  C: "yellow",
-  D: "red",
-  E: "red",
-};
-
-// No caching of ratings by design — every SCAN_REQUEST re-analyzes. This map
-// just holds the current tab's latest result so the popup has something to
-// show when opened; it's cleared whenever the tab navigates away.
+// The ratings themselves are cached in the backend; this map just holds the
+// current tab's latest result so the popup has something to show when
+// opened. It's cleared whenever the tab navigates away.
 const latestByTab = new Map();
 
-// ToS;DR's search endpoint does a text search, not a domain-suffix lookup —
-// querying with a real-world hostname like "www.tiktok.com" or
-// "auth.wikimedia.org" returns zero results even though "tiktok.com" /
-// "wikimedia.org" have ratings. So we try the full hostname first, then
-// progressively strip the leftmost label (auth.wikimedia.org -> wikimedia.org)
-// until something matches or we run out of labels.
-function domainSearchCandidates(domain) {
-  const labels = domain.split(".");
-  const candidates = [domain];
-  for (let i = 1; i < labels.length - 1; i++) {
-    candidates.push(labels.slice(i).join("."));
-  }
-  return candidates;
-}
-
-async function tosdrSearch(query) {
-  const res = await fetch(`https://api.tosdr.org/search/v5/?query=${encodeURIComponent(query)}`);
-  if (!res.ok) {
-    console.log(LOG, "ToS;DR responded", res.status, "for query", query);
-    return null;
-  }
-  const data = await res.json();
-  return data.services || [];
-}
-
-async function lookupTosdr(domain) {
-  try {
-    for (const candidate of domainSearchCandidates(domain)) {
-      console.log(LOG, "querying ToS;DR for", candidate);
-      const services = await tosdrSearch(candidate);
-      if (!services) continue;
-
-      const match = services.find((s) => (s.urls || []).some((u) => u === domain || domain.endsWith(`.${u}`) || u.endsWith(`.${domain}`)));
-      const rating = match && match.rating && TOSDR_GRADE_TO_RATING[match.rating];
-      if (rating) {
-        console.log(LOG, "ToS;DR match:", match.name, "grade", match.rating, "->", rating, "(via query", candidate, ")");
-        return {
-          rating,
-          source: "tosdr",
-          reasons: [{ signal: rating, label: `ToS;DR grade ${match.rating} for ${match.name}` }],
-        };
-      }
-    }
-    console.log(LOG, "no ToS;DR-rated match for", domain, "- falling back to heuristic");
-  } catch (err) {
-    console.warn(LOG, "ToS;DR lookup failed:", err);
-  }
-  return null;
-}
-
-async function fetchPolicyText(privacyPolicyUrl) {
-  const res = await fetch(privacyPolicyUrl);
-  if (!res.ok) throw new Error(`privacy policy fetch failed with status ${res.status}`);
-  const html = await res.text();
-  return stripHtml(html);
-}
-
-// Keyword heuristic — no longer the primary analysis method (see
-// analyzeWithLLM), kept only as a last-resort fallback if our own backend is
-// unreachable, so the extension still says *something* rather than nothing.
-async function scanPrivacyPolicy(privacyPolicyUrl) {
-  try {
-    console.log(LOG, "[fallback] fetching privacy policy:", privacyPolicyUrl);
-    const text = await fetchPolicyText(privacyPolicyUrl);
-    console.log(LOG, "[fallback] extracted", text.length, "chars of policy text; first 200:", text.slice(0, 200));
-    const { rating, reasons } = scorePolicyText(text);
-    console.log(LOG, "[fallback] heuristic result:", rating, reasons);
-    return { rating, source: "heuristic", reasons };
-  } catch (err) {
-    console.warn(LOG, "[fallback] privacy policy scan failed:", err);
-    return { rating: "yellow", source: "heuristic", reasons: [{ signal: "yellow", label: "couldn't fetch privacy policy page" }] };
-  }
-}
-
-async function analyzeWithLLM(domain, privacyPolicyUrl) {
-  let policyText = null;
-  if (privacyPolicyUrl) {
-    try {
-      console.log(LOG, "fetching privacy policy for LLM analysis:", privacyPolicyUrl);
-      policyText = await fetchPolicyText(privacyPolicyUrl);
-      console.log(LOG, "extracted", policyText.length, "chars of policy text");
-    } catch (err) {
-      console.warn(LOG, "privacy policy fetch failed, asking LLM to use general knowledge instead:", err);
-    }
-  }
-
-  const res = await fetch(BACKEND_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Extension-Key": EXTENSION_SHARED_KEY },
-    body: JSON.stringify({ domain, policyText }),
-  });
-  if (!res.ok) throw new Error(`backend responded ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-
-  console.log(LOG, "LLM rating:", data.rating, "(cached:", data.cached, ", based_on:", data.based_on, ")");
-
-  const reasons =
-    data.quoted_evidence && data.quoted_evidence.length > 0
-      ? data.quoted_evidence.map((q) => ({ signal: data.rating, label: q }))
-      : [{ signal: data.rating, label: data.reasoning }];
-
-  return { rating: data.rating, source: "llm", basedOn: data.based_on, reasons };
-}
-
 async function getRating(domain, privacyPolicyUrl) {
-  let result = await lookupTosdr(domain);
-  if (!result) {
-    try {
-      result = await analyzeWithLLM(domain, privacyPolicyUrl);
-    } catch (err) {
-      console.warn(LOG, "LLM backend unavailable, falling back to heuristic:", err);
-      result = privacyPolicyUrl
-        ? await scanPrivacyPolicy(privacyPolicyUrl)
-        : { rating: "yellow", source: "heuristic", reasons: [{ signal: "yellow", label: "no privacy policy link found on page" }] };
-    }
+  try {
+    const res = await fetch(BACKEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Extension-Key": EXTENSION_SHARED_KEY },
+      body: JSON.stringify({ domain, policyUrl: privacyPolicyUrl }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `backend responded ${res.status}`);
+    console.log(LOG, "rating for", domain, "=", data.rating, data.reason || "", "(cached:", data.cached, ")");
+    return data;
+  } catch (err) {
+    console.warn(LOG, "backend unavailable:", err);
+    return { rating: "unknown", reason: "backend_unavailable", policyUrl: privacyPolicyUrl, guidance: OFFLINE_GUIDANCE };
   }
-  console.log(LOG, "final rating for", domain, "=", result.rating, "(source:", result.source || "tosdr", ")");
-  return result;
 }
 
 async function setBadge(tabId, rating) {

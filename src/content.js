@@ -1,24 +1,31 @@
-// Active trigger: watches the page for inputs that look like they collect an
-// email or phone number, and kicks off a rating scan for the current domain.
+// Active trigger: watches the page for inputs that collect a phone number and
+// kicks off a rating for the site. Email-only forms (newsletters, sign-ups)
+// deliberately don't trigger anything — the risk this extension targets is
+// your number ending up with companies that will call you.
 
 const LOG = "[Privacy Shield]";
-const PII_SELECTOR = 'input[type="email"], input[type="tel"]';
-const PII_NAME_RE = /email|e-mail|phone|mobile|tel(ephone)?/i;
+const PHONE_SELECTOR = 'input[type="tel"]';
+const PHONE_HINT_RE = /phone|mobile|cellular|\btel\b|telephone/i;
 
 const BANNER_ID = "privacy-shield-banner";
 const BANNER_STYLE = {
-  green: { bg: "#16a34a", text: "Privacy Shield: looks safe — no strong signal this site shares/sells your data." },
-  yellow: { bg: "#ca8a04", text: "Privacy Shield: not sure — couldn't confirm how this site handles your data." },
-  red: { bg: "#dc2626", text: "Privacy Shield: caution — this site may share or sell your data." },
+  red: { bg: "#dc2626", title: "Privacy Shield: this site may sell your number or pass it to companies that will contact you." },
+  unknown: { bg: "#475569", title: "Privacy Shield: couldn't check this site's privacy policy — have a look yourself before sharing your number." },
 };
+const NO_POLICY_TITLE = "Privacy Shield: this page doesn't link to a privacy policy.";
+
+// Auto-dismiss delay per rating — "unknown" gets the longest since it asks
+// the reader to go check something themselves.
+const AUTO_DISMISS_MS = { red: 14000, unknown: 20000 };
 
 let scanTriggered = false;
 let lastPrivacyPolicyUrl = null;
 
-function looksLikePiiInput(input) {
-  if (input.matches(PII_SELECTOR)) return true;
-  const hints = [input.name, input.id, input.autocomplete, input.placeholder].join(" ");
-  return PII_NAME_RE.test(hints);
+function looksLikePhoneInput(input) {
+  if (input.type === "hidden" || input.type === "submit" || input.type === "button") return false;
+  if (input.matches(PHONE_SELECTOR)) return true;
+  const hints = [input.name, input.id, input.autocomplete, input.placeholder, input.getAttribute("aria-label")].join(" ");
+  return PHONE_HINT_RE.test(hints);
 }
 
 function findPrivacyPolicyUrl() {
@@ -26,28 +33,6 @@ function findPrivacyPolicyUrl() {
   const match = links.find((a) => /privacy( policy)?/i.test(a.textContent || "") || /privacy-?policy/i.test(a.getAttribute("href") || ""));
   return match ? match.href : null;
 }
-
-function formatReason(result) {
-  const reason = result.reasons && result.reasons[0];
-  if (!reason) return "";
-  // Heuristic red/green reasons are sentences quoted verbatim from the site's
-  // own policy (written in their voice, "we may share..."). Attribute them
-  // clearly so it doesn't read as Privacy Shield making that statement.
-  if (result.source === "heuristic" && (reason.signal === "red" || reason.signal === "amber" || reason.signal === "green")) {
-    return `Their privacy policy: "${reason.label}"`;
-  }
-  if (result.source === "llm") {
-    if (result.basedOn === "policy_text") return `Their privacy policy: "${reason.label}"`;
-    // No policy page was found at all — be explicit this is an inference,
-    // not a citation, so it doesn't read as quoted policy text.
-    if (result.basedOn === "general_knowledge") return `No privacy policy found — based on general knowledge: ${reason.label}`;
-  }
-  return reason.label;
-}
-
-// Auto-dismiss delay per rating — red gets longer since it's the one worth
-// actually reading before deciding whether to submit the form.
-const AUTO_DISMISS_MS = { green: 6000, yellow: 9000, red: 14000 };
 
 function isSafeHttpUrl(url) {
   try {
@@ -58,52 +43,65 @@ function isSafeHttpUrl(url) {
   }
 }
 
+function el(tag, cssText, text) {
+  const node = document.createElement(tag);
+  if (cssText) node.style.cssText = cssText;
+  // Always textContent, never innerHTML: quoted policy text comes from a
+  // third-party page and must not be able to inject markup into this page.
+  if (text) node.textContent = text;
+  return node;
+}
+
 function showBanner(result) {
   if (document.getElementById(BANNER_ID)) return;
 
-  const style = BANNER_STYLE[result.rating] || BANNER_STYLE.yellow;
-  const reasonText = formatReason(result);
+  const style = BANNER_STYLE[result.rating];
+  if (!style) return;
 
-  const banner = document.createElement("div");
-  banner.id = BANNER_ID;
-  banner.style.cssText = `
+  const banner = el("div", `
     position: fixed; top: 12px; right: 12px; z-index: 2147483647;
-    max-width: 340px; padding: 12px 36px 12px 14px; border-radius: 8px;
+    max-width: 360px; padding: 12px 36px 12px 14px; border-radius: 8px;
     background: ${style.bg}; color: #fff; font: 13px/1.4 -apple-system, system-ui, sans-serif;
     box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-  `;
-  banner.innerHTML = `
-    <div style="font-weight:600; margin-bottom:4px;">${style.text}</div>
-    ${reasonText ? `<div style="opacity:0.9; font-size:12px;">${reasonText}</div>` : ""}
-  `;
+  `);
+  banner.id = BANNER_ID;
 
-  // Link to the site's own privacy policy (not Privacy Shield's) so someone
-  // who wants more than one quoted sentence before deciding whether to
-  // submit the form can go read the whole thing themselves.
-  if (lastPrivacyPolicyUrl && isSafeHttpUrl(lastPrivacyPolicyUrl)) {
-    const link = document.createElement("a");
-    link.href = lastPrivacyPolicyUrl;
+  const title = result.reason === "no_policy_link" ? NO_POLICY_TITLE : style.title;
+  banner.appendChild(el("div", "font-weight:600; margin-bottom:4px;", title));
+
+  if (result.rating === "red") {
+    // Quoted evidence is in the site's own voice ("we may share..."), so
+    // attribute it clearly — otherwise it reads as Privacy Shield saying it.
+    const quote = result.quoted_evidence && result.quoted_evidence[0];
+    const detail = quote ? `Their privacy policy: "${quote}"` : result.reasoning;
+    if (detail) banner.appendChild(el("div", "opacity:0.92; font-size:12px;", detail));
+  } else if (result.guidance && result.guidance.length) {
+    const list = el("ul", "margin:6px 0 0; padding-left:16px; font-size:12px; opacity:0.95;");
+    for (const tip of result.guidance) list.appendChild(el("li", "margin-bottom:3px;", tip));
+    banner.appendChild(list);
+  }
+
+  // Link to the site's own privacy policy (not Privacy Shield's) so the
+  // reader can check it themselves before deciding whether to submit.
+  const policyUrl = result.policyUrl || lastPrivacyPolicyUrl;
+  if (policyUrl && isSafeHttpUrl(policyUrl)) {
+    const link = el("a", "display:inline-block; margin-top:8px; color:#fff; font-size:12px; text-decoration:underline;", "Read their full privacy policy ↗");
+    link.href = policyUrl;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.textContent = "Read their full privacy policy ↗";
-    link.style.cssText = "display:inline-block; margin-top:8px; color:#fff; font-size:12px; text-decoration:underline;";
     banner.appendChild(link);
   }
 
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "×";
-  closeBtn.setAttribute("aria-label", "Dismiss");
-  closeBtn.style.cssText = `
+  const closeBtn = el("button", `
     position: absolute; top: 6px; right: 8px; background: transparent; border: none;
     color: #fff; font-size: 18px; line-height: 1; cursor: pointer; padding: 4px;
-  `;
+  `, "×");
+  closeBtn.setAttribute("aria-label", "Dismiss");
   closeBtn.onclick = () => banner.remove();
   banner.appendChild(closeBtn);
 
   document.documentElement.appendChild(banner);
-
-  const dismissAfter = AUTO_DISMISS_MS[result.rating] || AUTO_DISMISS_MS.yellow;
-  setTimeout(() => banner.remove(), dismissAfter);
+  setTimeout(() => banner.remove(), AUTO_DISMISS_MS[result.rating]);
 }
 
 function triggerScan() {
@@ -112,7 +110,7 @@ function triggerScan() {
 
   const privacyPolicyUrl = findPrivacyPolicyUrl();
   lastPrivacyPolicyUrl = privacyPolicyUrl;
-  console.log(LOG, "PII input detected, requesting scan. domain:", location.hostname, "privacyPolicyUrl:", privacyPolicyUrl);
+  console.log(LOG, "phone input detected, requesting rating. domain:", location.hostname, "privacyPolicyUrl:", privacyPolicyUrl);
 
   chrome.runtime.sendMessage(
     { type: "SCAN_REQUEST", domain: location.hostname, privacyPolicyUrl },
@@ -121,33 +119,30 @@ function triggerScan() {
         console.warn(LOG, "scan request failed:", chrome.runtime.lastError.message);
         return;
       }
-      console.log(LOG, "scan result:", result);
-      // Only red (sell/rent, or sharing with parties who'll solicit you
-      // directly) is worth interrupting for. Yellow now also covers routine
-      // operational sharing (affiliates/subcontractors/vendors) which isn't
-      // the "your phone starts ringing" scenario — badge still reflects it,
-      // but the banner stays quiet for both yellow and green.
-      if (result.rating === "red") {
+      console.log(LOG, "rating:", result);
+      // Interrupt only when it matters: red (your number may reach companies
+      // that will contact you) or unknown (we couldn't check, so the reader
+      // should). Yellow/green show on the toolbar icon only.
+      if (result.rating === "red" || result.rating === "unknown") {
         showBanner(result);
       }
     }
   );
 }
 
-function scanForPiiInputs() {
-  const inputs = document.querySelectorAll("input");
-  for (const input of inputs) {
-    if (looksLikePiiInput(input)) {
+function scanForPhoneInputs() {
+  for (const input of document.querySelectorAll("input")) {
+    if (looksLikePhoneInput(input)) {
       triggerScan();
       return;
     }
   }
 }
 
-scanForPiiInputs();
+scanForPhoneInputs();
 
 const observer = new MutationObserver(() => {
-  if (!scanTriggered) scanForPiiInputs();
+  if (!scanTriggered) scanForPhoneInputs();
 });
 observer.observe(document.documentElement, { childList: true, subtree: true });
 
@@ -156,11 +151,11 @@ observer.observe(document.documentElement, { childList: true, subtree: true });
 // since the user may click report on a page that never triggered a scan.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type !== "GET_DIAGNOSTICS") return;
-  const piiInputNow = Array.from(document.querySelectorAll("input")).some(looksLikePiiInput);
+  const phoneInputNow = Array.from(document.querySelectorAll("input")).some(looksLikePhoneInput);
   sendResponse({
     frameUrl: location.href,
     scanTriggered,
-    piiInputDetectedNow: piiInputNow,
+    phoneInputDetectedNow: phoneInputNow,
     privacyPolicyUrlUsed: lastPrivacyPolicyUrl,
     privacyPolicyUrlNow: findPrivacyPolicyUrl(),
     iframeCount: document.querySelectorAll("iframe").length,
