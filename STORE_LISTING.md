@@ -144,6 +144,6 @@ Terms of service URL: https://arif-karim.github.io/privacy-shield/terms/
 ## Screenshots
 
 Store requires at least one screenshot, 1280x800 or 640x400 PNG/JPEG.
-A promotional mockup has been generated at `store-assets/screenshot-1280x800.png`
+A product screenshot (sample quote form with the real banner and popup) is at `store-assets/screenshot-1280x800.png`
 (see below) — swap in a real one from actual usage once you're testing
 live if you'd rather show the real product instead of a mockup.
