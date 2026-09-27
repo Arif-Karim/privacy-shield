@@ -42,6 +42,8 @@ WHAT IT DOES
   read the whole thing.
 - If a site's policy can't be read, it tells you so and shows what to look
   for yourself instead of guessing.
+- Optional subscription ($1.50/month or $12/year): get alerted if a site you
+  gave your number to later changes its privacy policy for the worse.
 
 WHAT IT DOESN'T DO
 - Never reads, stores or sends what you type into forms.
@@ -63,8 +65,8 @@ rather than relying on this label being exact).
 
 ## Privacy practices tab
 
-Permissions requested: `activeTab`, host permission for the Privacy Shield
-backend only, and a content script on all sites.
+Permissions requested: `activeTab`, `storage`, `alarms`, host permission for
+the Privacy Shield backend only, and a content script on all sites.
 
 **Host permission / content script justification:**
 
@@ -84,6 +86,23 @@ Claude API. Nothing the user types into forms is read or sent.
 ```
 Lets the popup show the rating for the tab the user is looking at when they
 click the toolbar icon.
+```
+
+**storage justification:**
+
+```
+Stores, on the user's device, the list of sites where they entered a phone
+number (domain, rating at the time, date — never the number), their
+subscription licence key if they have one, and pending policy-change
+alerts.
+```
+
+**alarms justification:**
+
+```
+For subscribers, re-checks the privacy policies of sites where they entered
+their phone number about twice a day, so the extension can alert them if a
+policy changes for the worse.
 ```
 
 **Remote code justification:**
@@ -106,6 +125,9 @@ Data-use disclosures to select on the dashboard's data-collection form:
   field is sent to the backend (to rate that site). Being explicit here is
   safer in review than under-declaring.
 - **"Website content"** — declare it: the page's privacy policy link is sent.
+- **"Authentication information"** — declare it if the dashboard counts a
+  subscription licence key as such (it's sent to our backend to check the
+  subscription is active).
 - Do NOT check personally identifiable information, financial info,
   authentication info, personal communications, location, or user
   activity — none of those are collected.

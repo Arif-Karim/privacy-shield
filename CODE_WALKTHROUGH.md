@@ -82,7 +82,7 @@ opens a pre-filled email with diagnostics.
 
 ## Backend (`backend/`)
 
-### 5. `backend/src/index.js` — `/rate`
+### 5. `backend/src/index.js` — routes and `/rate`
 
 `rate(env, clientIp, domain, policyUrl)` is the whole decision, top to bottom:
 
@@ -115,6 +115,28 @@ request instead of being served stale.
 - `policyHash(text)` — SHA-256 of the **sorted set of unique sentences**, not
   the raw page or text: pages reorder/repeat blocks between loads (A/B tests,
   CDN variants), which changed a plain hash on 5 of 11 real sites tested.
+
+## Paid tier: policy-change alerts
+
+1. **Checkout** — Stripe Payment Links (URLs served by the backend's
+   `GET /config`, from the `CHECKOUT_MONTHLY_URL` / `CHECKOUT_YEARLY_URL`
+   vars, so they can change without an extension release). Stripe redirects
+   to `GET /license/claim?session_id=…` (`backend/src/license.js`), which
+   confirms the checkout with Stripe, mints a `PS-XXXX-…` key once per session,
+   and shows it.
+2. **Activate** — popup → `SET_LICENSE` → `POST /license/validate`. The
+   backend re-confirms the subscription with Stripe at most every 12h
+   (`checkLicense`), so cancellations take effect without webhooks.
+3. **Watch** — `content.js` sends `PHONE_ENTERED` when a phone field gets a
+   number (≥7 digits) on a rated site; `background.js` stores the site and its
+   rating in `storage.local.watched` (never the number). A `policy-watch`
+   alarm (every 12h) posts those domains to `POST /watch`, which re-checks each
+   policy through the same `rate()` path.
+4. **Alert** — if a site's rating is now worse than what the user agreed to,
+   it's queued in `storage.local.alerts`; the next top-level page shows it once
+   via `GET_PENDING_ALERT` → `showPolicyChangeAlert()`.
+
+Licence keys are a stopgap until Google sign-in (GitHub issue #1).
 
 ## Debugging tips
 

@@ -79,14 +79,33 @@
       data.</li>
   </ul>
 
-  <h2>Local storage</h2>
-  <p>The extension does not store a history of sites you've visited or their
-  ratings on your device. A short-lived, in-memory record of the current
-  tab's result is kept only so the popup can display it, and it is cleared
-  automatically whenever the tab navigates to a new page. On the backend,
-  only the computed rating for each site (green/yellow/red plus the policy
-  sentences supporting it) is cached, keyed by the site's domain; this cache
-  holds no information about who requested it.</p>
+  <h2>Stored on your device</h2>
+  <p>A short-lived, in-memory record of the current tab's rating is kept so
+  the popup can display it, and is cleared when the tab navigates away.</p>
+  <p>When you type a phone number into a form on a rated site, the extension
+  saves <strong>which site</strong> it was, the rating at that time, and the
+  date, in the extension's local storage on your device. The phone number
+  itself is never read into storage or sent anywhere. This list powers
+  policy-change alerts; it stays on your device unless you have an active
+  subscription (below). Uninstalling the extension deletes it.</p>
+
+  <h2>Policy-change alerts (paid)</h2>
+  <p>If you subscribe, you receive a licence key, stored in the extension's
+  local storage. About twice a day, the extension sends your licence key and
+  the list of sites where you entered your phone number (domain names only)
+  to the Privacy Shield backend, which re-checks those sites' privacy
+  policies and returns their current ratings. If one has changed for the
+  worse, the extension shows an alert banner. The backend does not keep the
+  list of sites you send.</p>
+  <p>Payments are handled by <strong>Stripe</strong>. The backend stores your
+  licence key together with your Stripe subscription and customer IDs, and
+  checks with Stripe whether the subscription is still active. Card details
+  go only to Stripe and are never seen by Privacy Shield.</p>
+
+  <h2>Backend cache</h2>
+  <p>On the backend, only the computed rating for each site (green/yellow/red
+  plus the policy sentences supporting it) is cached, keyed by the site's
+  domain; this cache holds no information about who requested it.</p>
 
   <h2>"Report an issue" feature</h2>
   <p>If you click "Report an issue" in the popup, the extension prepares a

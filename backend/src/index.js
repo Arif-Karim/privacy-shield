@@ -1,4 +1,5 @@
 import { htmlToPolicyText, policyHash } from "./policy.js";
+import { checkLicense, claimPage } from "./license.js";
 
 const MODEL = "claude-sonnet-5";
 const EFFORT = "low";
@@ -15,10 +16,13 @@ const MIN_POLICY_CHARS = 500; // less than this is a JS-rendered shell or an err
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DAILY_LLM_CALLS = 500; // hard global spend ceiling regardless of traffic/abuse
 const MAX_DAILY_LLM_CALLS_PER_IP = 20; // stops one IP from burning the whole day's global budget
+// Free-plan Workers allow 50 outbound fetches per request; each watched site
+// can cost a policy fetch + an LLM call, so the extension sends batches.
+const MAX_WATCH_SITES_PER_REQUEST = 20;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Extension-Key",
 };
 
@@ -233,18 +237,54 @@ async function rate(env, clientIp, domain, policyUrlRaw) {
   return publicView(next, { cached: false });
 }
 
+// Paid tier: re-check the sites a subscriber gave their phone number to, so
+// the extension can alert them when one of those policies gets worse.
+async function watch(env, clientIp, sites) {
+  const results = [];
+  for (const ratedDomain of sites) {
+    const record = await env.RATINGS_KV.get(`site:${ratedDomain}`, "json");
+    if (!record || !record.policyUrl) {
+      results.push({ ratedDomain, rating: "unknown", reason: "not_rated" });
+      continue;
+    }
+    try {
+      results.push({ ...(await rate(env, clientIp, ratedDomain, record.policyUrl)), ratedDomain });
+    } catch (err) {
+      console.log("watch refresh failed", ratedDomain, String(err));
+      results.push({ ...publicView(record), ratedDomain });
+    }
+  }
+  return results;
+}
+
+function readDomain(value) {
+  const domain = String(value || "").toLowerCase().trim();
+  return domain && domain.length <= 253 && /^[a-z0-9.-]+$/.test(domain) ? domain : null;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
-    if (request.method !== "POST") {
-      return jsonResponse({ error: "Only POST is supported" }, 405);
+    const url = new URL(request.url);
+
+    // Browser-facing pages/data: no extension key (Stripe redirects here, and
+    // the popup reads checkout links before any key exists).
+    if (request.method === "GET" && url.pathname === "/license/claim") {
+      return claimPage(env, url.searchParams.get("session_id"));
+    }
+    if (request.method === "GET" && url.pathname === "/config") {
+      return jsonResponse({
+        checkout: { monthly: env.CHECKOUT_MONTHLY_URL || null, yearly: env.CHECKOUT_YEARLY_URL || null },
+      });
     }
 
-    const url = new URL(request.url);
-    if (url.pathname !== "/rate") {
+    if (request.method !== "POST") {
+      return jsonResponse({ error: "Not found" }, 404);
+    }
+    if (!["/rate", "/license/validate", "/watch"].includes(url.pathname)) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
@@ -257,7 +297,8 @@ export default {
 
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
 
-    // Burst protection: no single IP can hammer this endpoint, cached or not.
+    // Burst protection: no single IP can hammer these endpoints (this also
+    // makes guessing licence keys impractical).
     const { success: withinBurstLimit } = await env.IP_BURST_LIMITER.limit({ key: clientIp });
     if (!withinBurstLimit) {
       return jsonResponse({ error: "Too many requests, slow down." }, 429);
@@ -270,16 +311,28 @@ export default {
       return jsonResponse({ error: "Invalid JSON body" }, 400);
     }
 
-    const domain = (body.domain || "").toLowerCase().trim();
-    if (!domain || domain.length > 253 || !/^[a-z0-9.-]+$/.test(domain)) {
-      return jsonResponse({ error: "Missing or invalid domain" }, 400);
-    }
-    const policyUrl = typeof body.policyUrl === "string" && body.policyUrl.length <= 2048 ? body.policyUrl : null;
-
     try {
-      return jsonResponse(await rate(env, clientIp, domain, policyUrl));
+      if (url.pathname === "/rate") {
+        const domain = readDomain(body.domain);
+        if (!domain) return jsonResponse({ error: "Missing or invalid domain" }, 400);
+        const policyUrl = typeof body.policyUrl === "string" && body.policyUrl.length <= 2048 ? body.policyUrl : null;
+        return jsonResponse(await rate(env, clientIp, domain, policyUrl));
+      }
+
+      const license = await checkLicense(env, body.licenseKey);
+      if (url.pathname === "/license/validate") {
+        return jsonResponse(license);
+      }
+
+      // /watch
+      if (!license.valid) return jsonResponse({ error: "License not active", license }, 402);
+      const sites = [...new Set((Array.isArray(body.sites) ? body.sites : []).map(readDomain).filter(Boolean))];
+      if (sites.length > MAX_WATCH_SITES_PER_REQUEST) {
+        return jsonResponse({ error: `At most ${MAX_WATCH_SITES_PER_REQUEST} sites per request` }, 400);
+      }
+      return jsonResponse({ sites: await watch(env, clientIp, sites) });
     } catch (err) {
-      console.log("rate failed", domain, String(err));
+      console.log(url.pathname, "failed", String(err));
       return jsonResponse({ error: String(err) }, 502);
     }
   },

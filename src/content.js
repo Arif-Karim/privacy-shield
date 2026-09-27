@@ -20,6 +20,8 @@ const AUTO_DISMISS_MS = { red: 14000, unknown: 20000 };
 
 let scanTriggered = false;
 let lastPrivacyPolicyUrl = null;
+let lastResult = null;
+let phoneEnteredBeforeResult = false;
 
 function looksLikePhoneInput(input) {
   if (input.type === "hidden" || input.type === "submit" || input.type === "button") return false;
@@ -52,41 +54,31 @@ function el(tag, cssText, text) {
   return node;
 }
 
-function showBanner(result) {
+// One banner builder for ratings and alerts. `opts`: {bg, title, detail,
+// list, policyUrl, dismissMs}.
+function renderBanner(opts) {
   if (document.getElementById(BANNER_ID)) return;
-
-  const style = BANNER_STYLE[result.rating];
-  if (!style) return;
 
   const banner = el("div", `
     position: fixed; top: 12px; right: 12px; z-index: 2147483647;
     max-width: 360px; padding: 12px 36px 12px 14px; border-radius: 8px;
-    background: ${style.bg}; color: #fff; font: 13px/1.4 -apple-system, system-ui, sans-serif;
+    background: ${opts.bg}; color: #fff; font: 13px/1.4 -apple-system, system-ui, sans-serif;
     box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   `);
   banner.id = BANNER_ID;
-
-  const title = result.reason === "no_policy_link" ? NO_POLICY_TITLE : style.title;
-  banner.appendChild(el("div", "font-weight:600; margin-bottom:4px;", title));
-
-  if (result.rating === "red") {
-    // Quoted evidence is in the site's own voice ("we may share..."), so
-    // attribute it clearly — otherwise it reads as Privacy Shield saying it.
-    const quote = result.quoted_evidence && result.quoted_evidence[0];
-    const detail = quote ? `Their privacy policy: "${quote}"` : result.reasoning;
-    if (detail) banner.appendChild(el("div", "opacity:0.92; font-size:12px;", detail));
-  } else if (result.guidance && result.guidance.length) {
+  banner.appendChild(el("div", "font-weight:600; margin-bottom:4px;", opts.title));
+  if (opts.detail) banner.appendChild(el("div", "opacity:0.92; font-size:12px;", opts.detail));
+  if (opts.list && opts.list.length) {
     const list = el("ul", "margin:6px 0 0; padding-left:16px; font-size:12px; opacity:0.95;");
-    for (const tip of result.guidance) list.appendChild(el("li", "margin-bottom:3px;", tip));
+    for (const item of opts.list) list.appendChild(el("li", "margin-bottom:3px;", item));
     banner.appendChild(list);
   }
 
   // Link to the site's own privacy policy (not Privacy Shield's) so the
-  // reader can check it themselves before deciding whether to submit.
-  const policyUrl = result.policyUrl || lastPrivacyPolicyUrl;
-  if (policyUrl && isSafeHttpUrl(policyUrl)) {
+  // reader can check it themselves.
+  if (opts.policyUrl && isSafeHttpUrl(opts.policyUrl)) {
     const link = el("a", "display:inline-block; margin-top:8px; color:#fff; font-size:12px; text-decoration:underline;", "Read their full privacy policy ↗");
-    link.href = policyUrl;
+    link.href = opts.policyUrl;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     banner.appendChild(link);
@@ -101,7 +93,40 @@ function showBanner(result) {
   banner.appendChild(closeBtn);
 
   document.documentElement.appendChild(banner);
-  setTimeout(() => banner.remove(), AUTO_DISMISS_MS[result.rating]);
+  setTimeout(() => banner.remove(), opts.dismissMs);
+}
+
+function showRatingBanner(result) {
+  const style = BANNER_STYLE[result.rating];
+  if (!style) return;
+  // Quoted evidence is in the site's own voice ("we may share..."), so
+  // attribute it clearly — otherwise it reads as Privacy Shield saying it.
+  const quote = result.quoted_evidence && result.quoted_evidence[0];
+  renderBanner({
+    bg: style.bg,
+    title: result.reason === "no_policy_link" ? NO_POLICY_TITLE : style.title,
+    detail: result.rating === "red" ? (quote ? `Their privacy policy: "${quote}"` : result.reasoning) : null,
+    list: result.rating === "unknown" ? result.guidance : null,
+    policyUrl: result.policyUrl || lastPrivacyPolicyUrl,
+    dismissMs: AUTO_DISMISS_MS[result.rating],
+  });
+}
+
+const ALERT_OUTCOME = {
+  red: "may sell your number or pass it to companies that will contact you",
+  yellow: "may call or text you themselves, or is unclear about who gets your data",
+};
+
+function showPolicyChangeAlert(alert) {
+  const when = new Date(alert.enteredAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  renderBanner({
+    bg: "#7f1d1d",
+    title: `Privacy Shield alert: ${alert.ratedDomain} changed its privacy policy.`,
+    detail: `You gave them your phone number on ${when}. Their policy now says they ${ALERT_OUTCOME[alert.to] || "handle your data differently"}.` +
+      (alert.quote ? ` Their privacy policy: "${alert.quote}"` : ""),
+    policyUrl: alert.policyUrl,
+    dismissMs: 30000,
+  });
 }
 
 function triggerScan() {
@@ -120,11 +145,13 @@ function triggerScan() {
         return;
       }
       console.log(LOG, "rating:", result);
+      lastResult = result;
+      if (phoneEnteredBeforeResult) reportPhoneEntered();
       // Interrupt only when it matters: red (your number may reach companies
       // that will contact you) or unknown (we couldn't check, so the reader
       // should). Yellow/green show on the toolbar icon only.
       if (result.rating === "red" || result.rating === "unknown") {
-        showBanner(result);
+        showRatingBanner(result);
       }
     }
   );
@@ -139,7 +166,39 @@ function scanForPhoneInputs() {
   }
 }
 
+// The user actually typed a number (not just saw the field). Only the site
+// and its rating are recorded, in the extension's local storage — never the
+// number itself. Used by the paid policy-change alerts.
+function reportPhoneEntered() {
+  if (!lastResult) {
+    phoneEnteredBeforeResult = true;
+    return;
+  }
+  phoneEnteredBeforeResult = false;
+  chrome.runtime.sendMessage({ type: "PHONE_ENTERED", result: lastResult });
+}
+
+document.addEventListener(
+  "change",
+  (event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement && looksLikePhoneInput(input) && input.value.replace(/\D/g, "").length >= 7) {
+      reportPhoneEntered();
+    }
+  },
+  true
+);
+
 scanForPhoneInputs();
+
+// Pending policy-change alerts are shown once, on the next page opened (top
+// frame only, so an alert never renders inside an embedded iframe).
+if (window === window.top) {
+  chrome.runtime.sendMessage({ type: "GET_PENDING_ALERT" }, (alert) => {
+    if (chrome.runtime.lastError || !alert || alert.error) return;
+    showPolicyChangeAlert(alert);
+  });
+}
 
 const observer = new MutationObserver(() => {
   if (!scanTriggered) scanForPhoneInputs();

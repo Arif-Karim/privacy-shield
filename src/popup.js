@@ -145,4 +145,76 @@ async function main() {
   document.getElementById("reportBtn").addEventListener("click", handleReportClick);
 }
 
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text) n.textContent = text;
+  return n;
+}
+
+const RATING_WORDS = { green: "safe", yellow: "caution", red: "may sell your number" };
+
+async function renderAlertsSection() {
+  const box = document.getElementById("alerts");
+  const account = await chrome.runtime.sendMessage({ type: "GET_ACCOUNT" });
+  box.textContent = "";
+  if (!account || account.error) {
+    box.textContent = "Couldn't load alert settings.";
+    return;
+  }
+
+  const plural = (n) => `${n} site${n === 1 ? "" : "s"}`;
+
+  if (account.licensed) {
+    box.appendChild(node("p", null, `On — watching ${plural(account.watchedCount)} where you've entered your phone number. You'll get a banner if any of them changes its policy for the worse.`));
+    for (const a of account.recentAlerts) {
+      box.appendChild(node("div", "alert-item", `${a.ratedDomain}: ${RATING_WORDS[a.from]} → ${RATING_WORDS[a.to]} (${new Date(a.detectedAt).toLocaleDateString()})`));
+    }
+    const remove = node("button", "link-btn", "Remove licence key");
+    remove.onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "REMOVE_LICENSE" });
+      renderAlertsSection();
+    };
+    box.appendChild(remove);
+    return;
+  }
+
+  const intro = account.watchedCount
+    ? `You've entered your phone number on ${plural(account.watchedCount)}. Get a heads-up if any of them changes its privacy policy to sell your number.`
+    : "Get a heads-up if a site you gave your phone number to later changes its privacy policy to sell it.";
+  box.appendChild(node("p", null, intro));
+  if (account.licenseStatus && !["invalid_key", "unknown_key"].includes(account.licenseStatus)) {
+    box.appendChild(node("p", null, `Your subscription is ${account.licenseStatus.replace("_", " ")} — renew it to turn alerts back on.`));
+  }
+
+  const buy = node("div", "buy-row");
+  const links = account.checkout || {};
+  for (const [label, url] of [["$1.50 / month", links.monthly], ["$12 / year", links.yearly]]) {
+    if (!url || !isSafeHttpUrl(url)) continue;
+    const b = node("button", null, label);
+    b.onclick = () => chrome.tabs.create({ url });
+    buy.appendChild(b);
+  }
+  if (buy.childElementCount) box.appendChild(buy);
+  else box.appendChild(node("p", null, "Subscriptions are opening soon."));
+
+  const row = node("div", "key-row");
+  const input = node("input");
+  input.placeholder = "PS-XXXX-XXXX-XXXX-XXXX";
+  input.setAttribute("aria-label", "Licence key");
+  const activate = node("button", null, "Activate");
+  const msg = node("div", "msg");
+  activate.onclick = async () => {
+    activate.disabled = true;
+    msg.textContent = "Checking…";
+    const res = await chrome.runtime.sendMessage({ type: "SET_LICENSE", key: input.value });
+    activate.disabled = false;
+    if (res && res.valid) return renderAlertsSection();
+    msg.textContent = res && res.error ? "Couldn't reach the server — try again." : "That key isn't active. Check it and try again.";
+  };
+  row.append(input, activate);
+  box.append(row, msg);
+}
+
 main();
+renderAlertsSection();
