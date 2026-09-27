@@ -135,11 +135,15 @@ Data-use disclosures to select on the dashboard's data-collection form:
   authentication info, personal communications, location, or user
   activity — none of those are collected.
 
-Privacy policy URL: https://arif-karim.github.io/privacy-shield/
+Privacy policy URL: https://arif-karim.github.io/privacy-shield/privacy/
+
+Website / homepage URL: https://arif-karim.github.io/privacy-shield/
+
+Terms of service URL: https://arif-karim.github.io/privacy-shield/terms/
 
 ## Screenshots
 
 Store requires at least one screenshot, 1280x800 or 640x400 PNG/JPEG.
-A promotional mockup has been generated at `dist/screenshot-1.png`
+A promotional mockup has been generated at `store-assets/screenshot-1280x800.png`
 (see below) — swap in a real one from actual usage once you're testing
 live if you'd rather show the real product instead of a mockup.

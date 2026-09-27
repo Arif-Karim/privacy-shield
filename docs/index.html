@@ -2,130 +2,283 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Privacy Shield — Privacy Policy</title>
+<title>Privacy Shield — know who gets your phone number</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A Chrome extension that reads a website's privacy policy before you give it your phone number, and warns you if it may sell your number or pass it to companies that will call you.">
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    max-width: 680px;
-    margin: 0 auto;
-    padding: 48px 24px 80px;
-    line-height: 1.6;
-    color: #1f2937;
+  :root {
+    --blue: #2563eb;
+    --blue-deep: #1e40af;
+    --ink: #14213d;
+    --ink-soft: #4b5670;
+    --paper: #ffffff;
+    --mist: #eef3ff;
+    --line: #d9e1f2;
+    --red: #dc2626;
+    --amber: #b7791f;
+    --green: #15803d;
+    --slate: #475569;
   }
-  h1 { font-size: 26px; margin-bottom: 4px; }
-  .updated { color: #6b7280; font-size: 13px; margin-bottom: 32px; }
-  h2 { font-size: 18px; margin-top: 36px; }
-  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
-  ul { padding-left: 22px; }
-  li { margin-bottom: 10px; }
-  a { color: #2554f0; }
-  @media (prefers-color-scheme: dark) {
-    body { color: #e5e7eb; background: #111318; }
-    .updated { color: #9ca3af; }
-    code { background: #1f2430; }
-    a { color: #7c93ff; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Atkinson Hyperlegible", -apple-system, "Segoe UI", sans-serif;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--ink);
+    background: var(--paper);
+  }
+  a { color: var(--blue-deep); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  header { padding: 24px 0; }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; color: var(--ink); text-decoration: none; }
+  .brand img { width: 32px; height: 32px; }
+  nav { display: flex; gap: 20px; font-size: 16px; }
+  nav a { color: var(--ink-soft); text-decoration: none; }
+  nav a:hover { color: var(--ink); text-decoration: underline; }
+
+  /* Hero: the product at work */
+  .hero { padding: 40px 0 88px; }
+  .hero .wrap { display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
+  h1 {
+    font-size: clamp(40px, 6vw, 68px);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 0 0 20px;
+  }
+  .lede { font-size: 21px; color: var(--ink-soft); max-width: 34ch; margin: 0 0 28px; }
+  .install { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px; }
+  .btn {
+    display: inline-block; padding: 14px 22px; border-radius: 10px;
+    background: var(--blue); color: #fff; font-weight: 700; text-decoration: none;
+    border: 2px solid var(--blue);
+  }
+  .btn[aria-disabled="true"] { background: transparent; color: var(--blue-deep); cursor: default; }
+  .install small { color: var(--ink-soft); font-size: 15px; }
+
+  .stage { position: relative; }
+  .form { position: relative; }
+  .form {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 160px 26px 30px; box-shadow: 0 18px 50px -24px rgba(20, 33, 61, 0.35);
+    font-size: 16px;
+  }
+  .form .site { position: absolute; top: 22px; left: 26px; font-size: 13px; color: var(--ink-soft); }
+  .form h2 { font-size: 22px; margin: 0 0 16px; }
+  .form label { display: block; font-size: 14px; color: var(--ink-soft); margin: 12px 0 5px; }
+  .form .field { height: 42px; border: 1px solid #c8d1e3; border-radius: 8px; padding: 10px 12px; color: #9aa4b8; }
+  .form .field.focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18); color: var(--ink); }
+  .form .submit { margin-top: 20px; height: 44px; border-radius: 8px; background: #f59e0b; }
+  .banner {
+    position: absolute; top: -28px; right: -28px; width: min(320px, 82%);
+    background: var(--red); color: #fff; border-radius: 10px;
+    padding: 14px 16px; font-size: 14px; line-height: 1.4;
+    box-shadow: 0 16px 40px -12px rgba(127, 29, 29, 0.55);
+    animation: arrive 700ms cubic-bezier(.2, .8, .2, 1) 600ms both;
+  }
+  .banner b { display: block; font-size: 15px; margin-bottom: 6px; }
+  .banner q { opacity: 0.92; }
+  @keyframes arrive { from { opacity: 0; transform: translate(12px, -10px) scale(0.97); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .banner { animation: none; } }
+
+  /* Sections */
+  section { padding: 72px 0; }
+  h2.title { font-size: clamp(28px, 3.4vw, 38px); line-height: 1.12; letter-spacing: -0.01em; margin: 0 0 14px; }
+  .intro { color: var(--ink-soft); max-width: 60ch; margin: 0 0 36px; }
+
+  /* Ratings: coloured rows, each with a real policy line */
+  .ratings { border-top: 1px solid var(--line); }
+  .rating { display: grid; grid-template-columns: 170px 1fr 1.1fr; gap: 28px; padding: 24px 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .rating .name { font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .rating p { margin: 0; }
+  .rating blockquote { margin: 0; padding-left: 14px; border-left: 3px solid currentColor; font-style: italic; color: var(--ink-soft); font-size: 16px; }
+  .rating blockquote cite { display: block; font-style: normal; font-size: 14px; margin-top: 6px; }
+
+  .how { background: var(--mist); }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+  .steps li { counter-increment: step; }
+  .steps li::before { content: counter(step); display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 700; margin-bottom: 12px; }
+  .steps h3 { margin: 0 0 6px; font-size: 20px; }
+  .steps p { margin: 0; color: var(--ink-soft); }
+
+  /* Pricing as a comparison, not a card grid */
+  .plans { display: grid; grid-template-columns: 1fr 1fr; border: 2px solid var(--ink); border-radius: 16px; overflow: hidden; }
+  .plan { padding: 30px 30px 34px; }
+  .plan + .plan { border-left: 2px solid var(--ink); background: var(--mist); }
+  .plan h3 { font-size: 24px; margin: 0 0 4px; }
+  .price { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; margin: 6px 0 2px; }
+  .price span { font-size: 18px; font-weight: 400; color: var(--ink-soft); letter-spacing: 0; }
+  .plan ul { margin: 18px 0 0; padding-left: 20px; }
+  .plan li { margin-bottom: 8px; }
+  .note { color: var(--ink-soft); font-size: 16px; margin-top: 18px; max-width: 70ch; }
+
+  .terms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+  .terms-grid h3 { margin: 0 0 8px; font-size: 20px; }
+  .terms-grid p { margin: 0 0 12px; color: var(--ink-soft); }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 48px; font-size: 15px; color: var(--ink-soft); }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; }
+  footer nav { font-size: 15px; }
+
+  @media (max-width: 860px) {
+    .hero { padding-bottom: 56px; }
+    .hero .wrap { grid-template-columns: 1fr; gap: 64px; }
+    .banner { right: -6px; }
+    .rating { grid-template-columns: 1fr; gap: 10px; }
+    .steps, .terms-grid { grid-template-columns: 1fr; gap: 28px; }
+    .plans { grid-template-columns: 1fr; }
+    .plan + .plan { border-left: 0; border-top: 2px solid var(--ink); }
+    nav.top { display: none; }
   }
 </style>
 </head>
 <body>
-  <h1>Privacy Shield — Privacy Policy</h1>
-  <div class="updated">Last updated: 2026-09-27</div>
+<header>
+  <div class="wrap">
+    <a class="brand" href="./"><img src="icon.png" alt="">Privacy Shield</a>
+    <nav class="top" aria-label="Page sections">
+      <a href="#ratings">What the colours mean</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#terms">Cancelling &amp; refunds</a>
+    </nav>
+  </div>
+</header>
 
-  <p>Privacy Shield is a browser extension that warns you before you give
-  your phone number to a website that may sell it or pass it to other
-  companies who will contact you. This page explains what the extension does
-  and does not do with your information.</p>
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <h1>Know who gets your phone number before you hit submit.</h1>
+        <p class="lede">Privacy Shield reads a website's privacy policy the moment a form asks for your number, and warns you if the site may sell it or pass it to companies that will call you.</p>
+        <div class="install">
+          <a class="btn" aria-disabled="true">Coming soon to the Chrome Web Store</a>
+          <small>Free to use. No account needed.</small>
+        </div>
+      </div>
+      <div class="stage" aria-label="Example: Privacy Shield warning on an insurance quote form">
+        <div class="form" aria-hidden="true">
+          <div class="site">quotes.example.com</div>
+          <h2>Get your free car insurance quote</h2>
+          <label>Full name</label>
+          <div class="field">Jordan Lee</div>
+          <label>Mobile number</label>
+          <div class="field focus">04</div>
+          <div class="submit"></div>
+        </div>
+        <div class="banner" role="img" aria-label="Warning banner: this site may sell your number or pass it to companies that will contact you.">
+          <b>Privacy Shield: this site may sell your number or pass it to companies that will contact you.</b>
+          Their privacy policy: <q>We sell your Personal Information to third-party companies who want to advertise and market products or services…</q>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <h2>What the extension accesses</h2>
-  <ul>
-    <li><strong>Page content on sites you visit.</strong> The extension reads
-      the current page's HTML, locally in your browser, to detect form fields
-      that ask for a phone number and to find the link to that site's own
-      privacy policy. Nothing is sent anywhere unless a phone-number field is
-      found.</li>
-    <li><strong>When a phone-number field is found:</strong> the extension
-      sends two things to the Privacy Shield backend: the domain name of the
-      page (e.g. <code>example.com</code>) and the address of the privacy
-      policy link on that page. That's all — never the page itself and never
-      anything you type.</li>
-  </ul>
+  <section id="ratings">
+    <div class="wrap">
+      <h2 class="title">What the colours mean</h2>
+      <p class="intro">Each rating answers one question: if you give this site your number, will other companies end up contacting you? Every warning shows the sentence from the site's own policy that it's based on.</p>
+      <div class="ratings">
+        <div class="rating" style="color: var(--red)">
+          <div class="name"><span class="dot" style="background: var(--red)"></span><span style="color: var(--ink)">Red</span></div>
+          <p style="color: var(--ink)">The site may sell your details, or share them with partners who will call, text or email you with offers. This is how one quote request turns into weeks of sales calls.</p>
+          <blockquote>"We may disclose your personal information to Network Partners to provide you with information about financial products and services that may interest you."<cite>A loan comparison site</cite></blockquote>
+        </div>
+        <div class="rating" style="color: var(--amber)">
+          <div class="name"><span class="dot" style="background: var(--amber)"></span><span style="color: var(--ink)">Yellow</span></div>
+          <p style="color: var(--ink)">No sign of other companies contacting you, but the site itself says it may call or text you for marketing, or its policy is too vague to tell.</p>
+          <blockquote>"We may share your information with third parties in accordance with applicable law and for business purposes."<cite>Vague about who, and why</cite></blockquote>
+        </div>
+        <div class="rating" style="color: var(--green)">
+          <div class="name"><span class="dot" style="background: var(--green)"></span><span style="color: var(--ink)">Green</span></div>
+          <p style="color: var(--ink)">Your details only go to companies working for the site, like its payment processor or hosting provider. No selling, no third-party marketing.</p>
+          <blockquote>"We do not rent, buy or sell personal data from or to others."<cite>A privacy-first analytics company</cite></blockquote>
+        </div>
+        <div class="rating" style="color: var(--slate)">
+          <div class="name"><span class="dot" style="background: var(--slate)"></span><span style="color: var(--ink)">Couldn't check</span></div>
+          <p style="color: var(--ink)">The page has no privacy policy, or the site won't let us read it. Rather than guess, Privacy Shield tells you what to look for yourself.</p>
+          <blockquote style="font-style: normal">Search the policy for: sell, partners, third parties, marketing, contact you.</blockquote>
+        </div>
+      </div>
+    </div>
+  </section>
 
-  <h2>What the extension does NOT do</h2>
-  <ul>
-    <li>It does not collect, store, or transmit the actual information you
-      type into forms (your phone number, email address, name, etc.).</li>
-    <li>It does not track your browsing history. Only the domain and privacy
-      policy address of a page with a phone-number field are sent, and only
-      to rate that site.</li>
-    <li>It does not run any advertising or third-party analytics.</li>
-  </ul>
+  <section class="how">
+    <div class="wrap">
+      <h2 class="title">How it works</h2>
+      <p class="intro">It stays out of the way until a form asks for your phone number.</p>
+      <ol class="steps">
+        <li><h3>Spots the phone field</h3><p>Email-only sign-ups are ignored. Nothing is sent anywhere unless a page asks for your number.</p></li>
+        <li><h3>Reads their policy</h3><p>AI reads the site's own privacy policy, looking for who your number could end up with.</p></li>
+        <li><h3>Shows you the answer</h3><p>A red warning pops up on the page, with the exact sentence from their policy and a link to read it all.</p></li>
+      </ol>
+      <p class="note">Privacy Shield never reads or stores what you type into forms. It only sends the site's name and the address of its privacy policy. <a href="privacy/">Read our privacy policy</a>.</p>
+    </div>
+  </section>
 
-  <h2>Third parties contacted</h2>
-  <ul>
-    <li><strong>The Privacy Shield backend service</strong> (a Cloudflare
-      Worker operated by the developer) — receives the domain and privacy
-      policy address described above. The backend itself downloads that
-      public privacy policy page from the website, rates it, and caches the
-      rating per site so it doesn't have to be re-analyzed for every user.
-      It re-checks the policy periodically and re-rates it if the text
-      changes. Your IP address is used, and kept for about a day, only to
-      rate-limit requests and prevent abuse.</li>
-    <li><strong>Anthropic (Claude API)</strong> — the backend sends the
-      public privacy policy text to Anthropic's Claude model to produce the
-      rating. Anthropic processes this request under its own API terms; the
-      text sent is the website's public privacy policy, not your personal
-      data.</li>
-  </ul>
+  <section id="pricing">
+    <div class="wrap">
+      <h2 class="title">Pricing</h2>
+      <p class="intro">Once any user has a site checked, its rating is shared with everyone, so most sites you visit are free to see forever.</p>
+      <div class="plans">
+        <div class="plan">
+          <h3>Free</h3>
+          <div class="price">$0</div>
+          <ul>
+            <li>Ratings for every site that's already been checked</li>
+            <li>5 checks of brand-new sites every month</li>
+            <li>Warnings with the exact policy sentence</li>
+          </ul>
+        </div>
+        <div class="plan">
+          <h3>Plus</h3>
+          <div class="price">US$1.50 <span>a month, or US$12 a year</span></div>
+          <ul>
+            <li>Unlimited checks of new sites</li>
+            <li>An alert if a site you gave your number to changes its privacy policy for the worse</li>
+            <li>Everything in Free</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note">Prices include any sales tax or VAT. Payments are handled by Link, Stripe's checkout, which appears on your statement as the seller. Subscribe from the Privacy Shield toolbar icon after installing.</p>
+    </div>
+  </section>
 
-  <h2>Stored on your device</h2>
-  <p>A short-lived, in-memory record of the current tab's rating is kept so
-  the popup can display it, and is cleared when the tab navigates away.</p>
-  <p>When you type a phone number into a form on a rated site, the extension
-  saves <strong>which site</strong> it was, the rating at that time, and the
-  date, in the extension's local storage on your device. The phone number
-  itself is never read into storage or sent anywhere. This list powers
-  policy-change alerts; it stays on your device unless you have an active
-  subscription (below). Uninstalling the extension deletes it.</p>
+  <section id="terms" style="padding-top: 24px">
+    <div class="wrap">
+      <h2 class="title">Cancelling and refunds</h2>
+      <div class="terms-grid">
+        <div>
+          <h3>Cancel any time</h3>
+          <p>Cancel from the link in your payment receipt email, or at link.com. Plus stays active until the end of the period you've already paid for, then you're moved back to the free plan. There are no cancellation fees.</p>
+        </div>
+        <div>
+          <h3>Refunds</h3>
+          <p>If Plus isn't working for you, email us within 14 days of a charge and we'll refund it in full. This doesn't affect your rights under consumer law.</p>
+          <p>Questions? Email <a href="mailto:arifjubairulkarim@gmail.com">arifjubairulkarim@gmail.com</a>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
 
-  <h2>Free plan usage</h2>
-  <p>The extension creates a random install ID (not linked to you, your
-  browser profile, or your accounts) and sends it with each rating request,
-  so the backend can count how many not-yet-rated sites you've had checked
-  this month (the free plan includes 5). The backend keeps only that monthly
-  count, for about 40 days. Reinstalling the extension creates a new ID.</p>
-
-  <h2>Privacy Shield Plus (paid)</h2>
-  <p>Subscribers get unlimited new-site checks: the extension sends the
-  licence key with rating requests so the backend knows not to count
-  them.</p>
-  <p>Subscribers also get policy-change alerts. With a subscription you receive a licence key, stored in the extension's
-  local storage. About twice a day, the extension sends your licence key and
-  the list of sites where you entered your phone number (domain names only)
-  to the Privacy Shield backend, which re-checks those sites' privacy
-  policies and returns their current ratings. If one has changed for the
-  worse, the extension shows an alert banner. The backend does not keep the
-  list of sites you send.</p>
-  <p>Payments are handled by <strong>Stripe</strong>. The backend stores your
-  licence key together with your Stripe subscription and customer IDs, and
-  checks with Stripe whether the subscription is still active. Card details
-  go only to Stripe and are never seen by Privacy Shield.</p>
-
-  <h2>Backend cache</h2>
-  <p>On the backend, only the computed rating for each site (green/yellow/red
-  plus the policy sentences supporting it) is cached, keyed by the site's
-  domain; this cache holds no information about who requested it.</p>
-
-  <h2>"Report an issue" feature</h2>
-  <p>If you click "Report an issue" in the popup, the extension prepares a
-  pre-filled email (page URL, whether a form/privacy link was detected, and
-  the last rating shown) and opens it in your own email client.
-  <strong>Nothing is sent automatically</strong> — you see the full contents
-  and choose whether to send it, exactly like any other email you write.</p>
-
-  <h2>Contact</h2>
-  <p>Questions about this policy or the extension can be sent to
-  <a href="mailto:arifjubairulkarim@gmail.com">arifjubairulkarim@gmail.com</a>.</p>
+<footer>
+  <div class="wrap">
+    <span>Privacy Shield is made by Arif Karim in Australia.</span>
+    <nav aria-label="Legal">
+      <a href="privacy/">Privacy policy</a>
+      <a href="terms/">Terms of service</a>
+      <a href="mailto:arifjubairulkarim@gmail.com">Contact</a>
+    </nav>
+  </div>
+</footer>
 </body>
 </html>

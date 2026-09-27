@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Privacy Shield — Privacy Policy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../icon.png">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+    line-height: 1.6;
+    color: #1f2937;
+  }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .updated { color: #6b7280; font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 18px; margin-top: 36px; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 10px; }
+  a { color: #2554f0; }
+  .back { font-size: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e5e7eb; background: #111318; }
+    .updated { color: #9ca3af; }
+    code { background: #1f2430; }
+    a { color: #7c93ff; }
+  }
+</style>
+</head>
+<body>
+  <p class="back"><a href="../">← Privacy Shield</a></p>
+  <h1>Privacy Shield — Privacy Policy</h1>
+  <div class="updated">Last updated: 2026-09-27</div>
+
+  <p>Privacy Shield is a browser extension that warns you before you give
+  your phone number to a website that may sell it or pass it to other
+  companies who will contact you. This page explains what the extension does
+  and does not do with your information.</p>
+
+  <h2>What the extension accesses</h2>
+  <ul>
+    <li><strong>Page content on sites you visit.</strong> The extension reads
+      the current page's HTML, locally in your browser, to detect form fields
+      that ask for a phone number and to find the link to that site's own
+      privacy policy. Nothing is sent anywhere unless a phone-number field is
+      found.</li>
+    <li><strong>When a phone-number field is found:</strong> the extension
+      sends two things to the Privacy Shield backend: the domain name of the
+      page (e.g. <code>example.com</code>) and the address of the privacy
+      policy link on that page. That's all — never the page itself and never
+      anything you type.</li>
+  </ul>
+
+  <h2>What the extension does NOT do</h2>
+  <ul>
+    <li>It does not collect, store, or transmit the actual information you
+      type into forms (your phone number, email address, name, etc.).</li>
+    <li>It does not track your browsing history. Only the domain and privacy
+      policy address of a page with a phone-number field are sent, and only
+      to rate that site.</li>
+    <li>It does not run any advertising or third-party analytics.</li>
+  </ul>
+
+  <h2>Third parties contacted</h2>
+  <ul>
+    <li><strong>The Privacy Shield backend service</strong> (a Cloudflare
+      Worker operated by the developer) — receives the domain and privacy
+      policy address described above. The backend itself downloads that
+      public privacy policy page from the website, rates it, and caches the
+      rating per site so it doesn't have to be re-analyzed for every user.
+      It re-checks the policy periodically and re-rates it if the text
+      changes. Your IP address is used, and kept for about a day, only to
+      rate-limit requests and prevent abuse.</li>
+    <li><strong>Anthropic (Claude API)</strong> — the backend sends the
+      public privacy policy text to Anthropic's Claude model to produce the
+      rating. Anthropic processes this request under its own API terms; the
+      text sent is the website's public privacy policy, not your personal
+      data.</li>
+  </ul>
+
+  <h2>Stored on your device</h2>
+  <p>A short-lived, in-memory record of the current tab's rating is kept so
+  the popup can display it, and is cleared when the tab navigates away.</p>
+  <p>When you type a phone number into a form on a rated site, the extension
+  saves <strong>which site</strong> it was, the rating at that time, and the
+  date, in the extension's local storage on your device. The phone number
+  itself is never read into storage or sent anywhere. This list powers
+  policy-change alerts; it stays on your device unless you have an active
+  subscription (below). Uninstalling the extension deletes it.</p>
+
+  <h2>Free plan usage</h2>
+  <p>The extension creates a random install ID (not linked to you, your
+  browser profile, or your accounts) and sends it with each rating request,
+  so the backend can count how many not-yet-rated sites you've had checked
+  this month (the free plan includes 5). The backend keeps only that monthly
+  count, for about 40 days. Reinstalling the extension creates a new ID.</p>
+
+  <h2>Privacy Shield Plus (paid)</h2>
+  <p>Subscribers get unlimited new-site checks: the extension sends the
+  licence key with rating requests so the backend knows not to count
+  them.</p>
+  <p>Subscribers also get policy-change alerts. With a subscription you receive a licence key, stored in the extension's
+  local storage. About twice a day, the extension sends your licence key and
+  the list of sites where you entered your phone number (domain names only)
+  to the Privacy Shield backend, which re-checks those sites' privacy
+  policies and returns their current ratings. If one has changed for the
+  worse, the extension shows an alert banner. The backend does not keep the
+  list of sites you send.</p>
+  <p>Payments are handled by <strong>Stripe</strong>. The backend stores your
+  licence key together with your Stripe subscription and customer IDs, and
+  checks with Stripe whether the subscription is still active. Card details
+  go only to Stripe and are never seen by Privacy Shield.</p>
+
+  <h2>Backend cache</h2>
+  <p>On the backend, only the computed rating for each site (green/yellow/red
+  plus the policy sentences supporting it) is cached, keyed by the site's
+  domain; this cache holds no information about who requested it.</p>
+
+  <h2>"Report an issue" feature</h2>
+  <p>If you click "Report an issue" in the popup, the extension prepares a
+  pre-filled email (page URL, whether a form/privacy link was detected, and
+  the last rating shown) and opens it in your own email client.
+  <strong>Nothing is sent automatically</strong> — you see the full contents
+  and choose whether to send it, exactly like any other email you write.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy or the extension can be sent to
+  <a href="mailto:arifjubairulkarim@gmail.com">arifjubairulkarim@gmail.com</a>.</p>
+</body>
+</html>
