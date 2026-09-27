@@ -74,9 +74,22 @@ async function api(path, body) {
 // opened. It's cleared whenever the tab navigates away.
 const latestByTab = new Map();
 
+// Random per-install ID, used only to count the free tier's monthly new-site
+// checks. Reinstalling resets it — acceptable at these amounts; Google
+// sign-in (issue #1) replaces it for paying users later.
+async function getInstallId() {
+  const { installId } = await chrome.storage.local.get("installId");
+  if (installId) return installId;
+  const fresh = crypto.randomUUID();
+  await chrome.storage.local.set({ installId: fresh });
+  return fresh;
+}
+
 async function getRating(domain, privacyPolicyUrl) {
   try {
-    const { res, data } = await api("/rate", { domain, policyUrl: privacyPolicyUrl });
+    const [installId, { licenseKey }] = await Promise.all([getInstallId(), chrome.storage.local.get("licenseKey")]);
+    const { res, data } = await api("/rate", { domain, policyUrl: privacyPolicyUrl, installId, licenseKey });
+    if (data.plan) await chrome.storage.local.set({ plan: data.plan, quota: data.quota || null });
     if (!res.ok || data.error) throw new Error(data.error || `backend responded ${res.status}`);
     console.log(LOG, "rating for", domain, "=", data.rating, data.reason || "", "(cached:", data.cached, ")");
     return data;
@@ -180,7 +193,7 @@ async function setLicense(key) {
 }
 
 async function getAccount() {
-  const { licenseKey, license, watched = {}, alerts = [] } = await chrome.storage.local.get(["licenseKey", "license", "watched", "alerts"]);
+  const { licenseKey, license, watched = {}, alerts = [], quota } = await chrome.storage.local.get(["licenseKey", "license", "watched", "alerts", "quota"]);
   let checkout = null;
   try {
     checkout = (await (await fetch(`${API_BASE}/config`)).json()).checkout;
@@ -192,6 +205,8 @@ async function getAccount() {
     licenseStatus: license ? license.status : null,
     watchedCount: Object.keys(watched).length,
     recentAlerts: alerts.slice(-3).reverse(),
+    // Last known free-tier usage for this month (from the most recent rating).
+    quota: quota && quota.resetsAt > Date.now() ? quota : null,
     checkout,
   };
 }

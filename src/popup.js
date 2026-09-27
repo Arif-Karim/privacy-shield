@@ -10,6 +10,7 @@ const UNKNOWN_REASON_TEXT = {
   unreadable: "The site blocked us from reading its privacy policy.",
   not_a_policy: "The privacy link doesn't lead to an actual privacy policy.",
   busy: "Too many new sites checked today — try again later.",
+  quota: "This site hasn't been checked yet, and you've used this month's free new-site checks.",
   backend_unavailable: "Privacy Shield's server couldn't be reached.",
 };
 
@@ -166,7 +167,7 @@ async function renderAlertsSection() {
   const plural = (n) => `${n} site${n === 1 ? "" : "s"}`;
 
   if (account.licensed) {
-    box.appendChild(node("p", null, `On — watching ${plural(account.watchedCount)} where you've entered your phone number. You'll get a banner if any of them changes its policy for the worse.`));
+    box.appendChild(node("p", null, `Plus is active: unlimited new-site checks. Watching ${plural(account.watchedCount)} where you've entered your phone number — you'll get a banner if any of them changes its policy for the worse.`));
     for (const a of account.recentAlerts) {
       box.appendChild(node("div", "alert-item", `${a.ratedDomain}: ${RATING_WORDS[a.from]} → ${RATING_WORDS[a.to]} (${new Date(a.detectedAt).toLocaleDateString()})`));
     }
@@ -179,10 +180,12 @@ async function renderAlertsSection() {
     return;
   }
 
-  const intro = account.watchedCount
-    ? `You've entered your phone number on ${plural(account.watchedCount)}. Get a heads-up if any of them changes its privacy policy to sell your number.`
-    : "Get a heads-up if a site you gave your phone number to later changes its privacy policy to sell it.";
-  box.appendChild(node("p", null, intro));
+  if (account.quota) {
+    const resets = new Date(account.quota.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    box.appendChild(node("p", null, `Free plan: ${Math.min(account.quota.used, account.quota.limit)} of ${account.quota.limit} new-site checks used this month (resets ${resets}). Sites already checked by anyone are always free.`));
+  }
+  box.appendChild(node("p", null, "Plus: unlimited new-site checks, and a heads-up if a site you gave your number to changes its policy to sell it."));
+  if (account.watchedCount) box.appendChild(node("p", null, `You've entered your phone number on ${plural(account.watchedCount)}.`));
   if (account.licenseStatus && !["invalid_key", "unknown_key"].includes(account.licenseStatus)) {
     box.appendChild(node("p", null, `Your subscription is ${account.licenseStatus.replace("_", " ")} — renew it to turn alerts back on.`));
   }

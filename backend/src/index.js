@@ -19,6 +19,11 @@ const MAX_DAILY_LLM_CALLS_PER_IP = 20; // stops one IP from burning the whole da
 // Free-plan Workers allow 50 outbound fetches per request; each watched site
 // can cost a policy fetch + an LLM call, so the extension sends batches.
 const MAX_WATCH_SITES_PER_REQUEST = 20;
+// Free tier: cached ratings are unlimited (they cost nothing); analysing a
+// site nobody has rated yet costs an LLM call, so free installs get this many
+// per calendar month (UTC). Re-analysing an already-rated site after its
+// policy changes (or after a PROMPT_VERSION bump) never counts.
+const FREE_NEW_SITES_PER_MONTH = 5;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -58,6 +63,11 @@ const GUIDANCE = {
   no_policy_link: [
     "On a form asking for your phone number, a missing privacy policy is a warning sign.",
     "Before submitting, look for one elsewhere on the site (usually the page footer) and search it for: sell, partners, third parties, marketing.",
+  ],
+  quota: [
+    `You've used your ${FREE_NEW_SITES_PER_MONTH} free new-site checks this month. Privacy Shield Plus gives unlimited checks — upgrade from the toolbar icon.`,
+    "Until then, open the privacy policy and search it (Cmd/Ctrl+F) for: sell, partners, third parties, marketing, contact you.",
+    "\"We don't sell your data\" doesn't rule out sharing it with partners who will contact you — keep reading.",
   ],
   default: [
     "Open the privacy policy and search it (Cmd/Ctrl+F) for: sell, partners, third parties, marketing, contact you.",
@@ -160,7 +170,20 @@ function publicView(record, extra = {}) {
   return { ...rest, ...extra };
 }
 
-async function rate(env, clientIp, domain, policyUrlRaw) {
+function quotaKey(caller) {
+  const month = new Date().toISOString().slice(0, 7);
+  return `quota:${month}:${caller.installId ? `install:${caller.installId}` : `ip:${caller.ip}`}`;
+}
+
+async function readQuota(env, caller) {
+  const now = new Date();
+  const resetsAt = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  return { used: await getCount(env.RATINGS_KV, quotaKey(caller)), limit: FREE_NEW_SITES_PER_MONTH, resetsAt };
+}
+
+// caller: {ip, installId, paid}
+async function rate(env, caller, domain, policyUrlRaw) {
+  const clientIp = caller.ip;
   if (!policyUrlRaw) return unknown("no_policy_link", { domain });
 
   const policyUrl = parsePolicyUrl(policyUrlRaw);
@@ -179,6 +202,16 @@ async function rate(env, clientIp, domain, policyUrlRaw) {
     record.promptVersion === PROMPT_VERSION &&
     now - record.checkedAt < (record.rating === "unknown" ? UNREADABLE_RETRY_MS : RECHECK_AFTER_MS);
   if (fresh) return publicView(record, { cached: true });
+
+  // A site nobody has rated yet costs an LLM call: that's what the free
+  // monthly allowance is for. (Re-rating a known site never counts.)
+  const isNewSite = !record || record.rating === "unknown";
+  if (isNewSite && !caller.paid) {
+    const quota = await readQuota(env, caller);
+    if (quota.used >= quota.limit) {
+      return unknown("quota", { ratedDomain, policyUrl: policyUrl.toString(), cached: false });
+    }
+  }
 
   // Always read the policy from the site itself. The extension only tells us
   // where it is — accepting policy text from clients would let anyone rewrite
@@ -217,6 +250,10 @@ async function rate(env, clientIp, domain, policyUrlRaw) {
   const result = await classifyWithClaude(ratedDomain, fetched.text, env.ANTHROPIC_API_KEY);
   await incrementCount(env.RATINGS_KV, globalKey, callsToday);
   await incrementCount(env.RATINGS_KV, ipKey, ipCallsToday);
+  if (isNewSite && !caller.paid) {
+    const qk = quotaKey(caller);
+    await env.RATINGS_KV.put(qk, String((await getCount(env.RATINGS_KV, qk)) + 1), { expirationTtl: 60 * 60 * 24 * 40 });
+  }
 
   const base = {
     ratedDomain,
@@ -239,7 +276,7 @@ async function rate(env, clientIp, domain, policyUrlRaw) {
 
 // Paid tier: re-check the sites a subscriber gave their phone number to, so
 // the extension can alert them when one of those policies gets worse.
-async function watch(env, clientIp, sites) {
+async function watch(env, caller, sites) {
   const results = [];
   for (const ratedDomain of sites) {
     const record = await env.RATINGS_KV.get(`site:${ratedDomain}`, "json");
@@ -248,7 +285,7 @@ async function watch(env, clientIp, sites) {
       continue;
     }
     try {
-      results.push({ ...(await rate(env, clientIp, ratedDomain, record.policyUrl)), ratedDomain });
+      results.push({ ...(await rate(env, caller, ratedDomain, record.policyUrl)), ratedDomain });
     } catch (err) {
       console.log("watch refresh failed", ratedDomain, String(err));
       results.push({ ...publicView(record), ratedDomain });
@@ -316,7 +353,12 @@ export default {
         const domain = readDomain(body.domain);
         if (!domain) return jsonResponse({ error: "Missing or invalid domain" }, 400);
         const policyUrl = typeof body.policyUrl === "string" && body.policyUrl.length <= 2048 ? body.policyUrl : null;
-        return jsonResponse(await rate(env, clientIp, domain, policyUrl));
+        const installId = typeof body.installId === "string" && /^[0-9a-f-]{36}$/.test(body.installId) ? body.installId : null;
+        const paid = body.licenseKey ? (await checkLicense(env, body.licenseKey)).valid : false;
+        const caller = { ip: clientIp, installId, paid };
+        const result = await rate(env, caller, domain, policyUrl);
+        // Free installs get their monthly usage back so the popup can show it.
+        return jsonResponse(paid ? { ...result, plan: "plus" } : { ...result, plan: "free", quota: await readQuota(env, caller) });
       }
 
       const license = await checkLicense(env, body.licenseKey);
@@ -330,7 +372,7 @@ export default {
       if (sites.length > MAX_WATCH_SITES_PER_REQUEST) {
         return jsonResponse({ error: `At most ${MAX_WATCH_SITES_PER_REQUEST} sites per request` }, 400);
       }
-      return jsonResponse({ sites: await watch(env, clientIp, sites) });
+      return jsonResponse({ sites: await watch(env, { ip: clientIp, installId: null, paid: true }, sites) });
     } catch (err) {
       console.log(url.pathname, "failed", String(err));
       return jsonResponse({ error: String(err) }, 502);

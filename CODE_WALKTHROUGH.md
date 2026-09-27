@@ -116,7 +116,19 @@ request instead of being served stale.
   the raw page or text: pages reorder/repeat blocks between loads (A/B tests,
   CDN variants), which changed a plain hash on 5 of 11 real sites tested.
 
-## Paid tier: policy-change alerts
+## Free quota
+
+Cached ratings are free and unlimited. Rating a site **nobody has rated yet**
+costs an LLM call, so free installs get `FREE_NEW_SITES_PER_MONTH` (5) per UTC
+month. `background.js` sends a random `installId` (created once, in
+`storage.local`) and, if present, the `licenseKey` with every `/rate` call; the
+backend counts new-site analyses in `quota:<YYYY-MM>:install:<id>` and returns
+`unknown / quota` (with upgrade guidance) once the allowance is used. Re-rating
+an already-known site (policy changed, or a `PROMPT_VERSION` bump) never
+counts. Free responses carry `quota {used, limit, resetsAt}`, which the popup
+shows.
+
+## Paid tier: Privacy Shield Plus
 
 1. **Checkout** — Stripe Payment Links (URLs served by the backend's
    `GET /config`, from the `CHECKOUT_MONTHLY_URL` / `CHECKOUT_YEARLY_URL`

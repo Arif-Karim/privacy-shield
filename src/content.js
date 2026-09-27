@@ -12,7 +12,11 @@ const BANNER_STYLE = {
   red: { bg: "#dc2626", title: "Privacy Shield: this site may sell your number or pass it to companies that will contact you." },
   unknown: { bg: "#475569", title: "Privacy Shield: couldn't check this site's privacy policy — have a look yourself before sharing your number." },
 };
-const NO_POLICY_TITLE = "Privacy Shield: this page doesn't link to a privacy policy.";
+// Headline overrides for specific "unknown" reasons.
+const UNKNOWN_TITLES = {
+  no_policy_link: "Privacy Shield: this page doesn't link to a privacy policy.",
+  quota: "Privacy Shield: this site hasn't been checked yet — you've used this month's free checks.",
+};
 
 // Auto-dismiss delay per rating — "unknown" gets the longest since it asks
 // the reader to go check something themselves.
@@ -104,7 +108,7 @@ function showRatingBanner(result) {
   const quote = result.quoted_evidence && result.quoted_evidence[0];
   renderBanner({
     bg: style.bg,
-    title: result.reason === "no_policy_link" ? NO_POLICY_TITLE : style.title,
+    title: UNKNOWN_TITLES[result.reason] || style.title,
     detail: result.rating === "red" ? (quote ? `Their privacy policy: "${quote}"` : result.reasoning) : null,
     list: result.rating === "unknown" ? result.guidance : null,
     policyUrl: result.policyUrl || lastPrivacyPolicyUrl,

@@ -104,12 +104,12 @@ export async function claimPage(env, sessionId) {
 
   return page(
     "Your Privacy Shield licence key",
-    `<h1>Thanks — alerts are ready to switch on</h1>
+    `<h1>Thanks — Privacy Shield Plus is ready to switch on</h1>
 <p>Your licence key:</p>
 <div class="key"><span id="k">${key}</span><button onclick="navigator.clipboard.writeText(document.getElementById('k').textContent);this.textContent='Copied'">Copy</button></div>
 <ol>
   <li>Click the Privacy Shield icon in your browser toolbar.</li>
-  <li>Paste the key under <b>Policy-change alerts</b> and press <b>Activate</b>.</li>
+  <li>Paste the key under <b>Privacy Shield Plus</b> and press <b>Activate</b>.</li>
 </ol>
 <p class="muted">Keep this key somewhere safe — you'll need it if you reinstall the extension. You can manage or cancel your subscription from the link in your Stripe receipt email.</p>`
   );

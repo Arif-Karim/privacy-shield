@@ -42,8 +42,11 @@ WHAT IT DOES
   read the whole thing.
 - If a site's policy can't be read, it tells you so and shows what to look
   for yourself instead of guessing.
-- Optional subscription ($1.50/month or $12/year): get alerted if a site you
-  gave your number to later changes its privacy policy for the worse.
+- Free: every site that's already been checked, plus 5 new-site checks a
+  month.
+- Privacy Shield Plus ($1.50/month or $12/year): unlimited new-site checks,
+  and an alert if a site you gave your number to later changes its privacy
+  policy for the worse.
 
 WHAT IT DOESN'T DO
 - Never reads, stores or sends what you type into forms.
