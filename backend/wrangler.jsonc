@@ -6,7 +6,7 @@
   "observability": {
     "enabled": true
   },
-  // Stripe Payment Links (test mode). Swap for live-mode links at launch.
+  // Stripe Payment Links (Privacy Shield test mode). Swap for live-mode links at launch.
   "vars": {
     "CHECKOUT_MONTHLY_URL": "https://buy.stripe.com/test_4gMfZi1vVgiv18BeeS7g400",
     "CHECKOUT_YEARLY_URL": "https://buy.stripe.com/test_cNi5kE3E32rF5oRb2G7g401"
