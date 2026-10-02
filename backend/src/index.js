@@ -115,7 +115,11 @@ async function fetchPolicyText(url) {
     return { error: `fetch failed: ${err}` };
   }
   if (!res.ok) return { error: `status ${res.status}` };
-  const html = (await res.text()).slice(0, 3_000_000);
+  return policyTextFromHtml(await res.text());
+}
+
+function policyTextFromHtml(rawHtml) {
+  const html = rawHtml.slice(0, 3_000_000);
   const text = htmlToPolicyText(html);
   if (text.length < MIN_POLICY_CHARS) return { error: `only ${text.length} chars of text (likely JS-rendered)` };
   return { text: text.slice(0, MAX_POLICY_CHARS) };
@@ -166,8 +170,9 @@ function publicView(record, extra = {}) {
   return { ...rest, ...extra };
 }
 
-// caller: {ip, paid}
-async function rate(env, caller, domain, policyUrlRaw) {
+// caller: {ip, paid, admin}. adminHtml: the policy page as fetched by our
+// seeding script, for sites that block Cloudflare's servers (admin only).
+async function rate(env, caller, domain, policyUrlRaw, adminHtml = null) {
   const clientIp = caller.ip;
   if (!policyUrlRaw) return unknown("no_policy_link", { domain });
 
@@ -186,7 +191,7 @@ async function rate(env, caller, domain, policyUrlRaw) {
     record &&
     record.promptVersion === PROMPT_VERSION &&
     now - record.checkedAt < (record.rating === "unknown" ? UNREADABLE_RETRY_MS : RECHECK_AFTER_MS);
-  if (fresh) return publicView(record, { cached: true });
+  if (fresh && !(adminHtml && record.rating === "unknown")) return publicView(record, { cached: true });
 
   // A site nobody has rated yet costs an LLM call, so that's Plus only.
   const isNewSite = !record || record.rating === "unknown";
@@ -197,8 +202,10 @@ async function rate(env, caller, domain, policyUrlRaw) {
 
   // Always read the policy from the site itself. The extension only tells us
   // where it is — accepting policy text from clients would let anyone rewrite
-  // the shared rating for any site.
-  const fetched = await fetchPolicyText(record?.policyUrl ? new URL(record.policyUrl) : policyUrl);
+  // the shared rating for any site. (Only our own seeding script, holding the
+  // admin key, may hand over a page the site wouldn't serve to Cloudflare.)
+  let fetched = await fetchPolicyText(record?.policyUrl && record.rating !== "unknown" ? new URL(record.policyUrl) : policyUrl);
+  if (fetched.error && adminHtml) fetched = policyTextFromHtml(adminHtml);
   if (fetched.error) {
     console.log("policy fetch failed", ratedDomain, fetched.error);
     if (record && record.rating !== "unknown") {
@@ -224,7 +231,7 @@ async function rate(env, caller, domain, policyUrlRaw) {
   const ipKey = `usage:${today}:ip:${clientIp}`;
   const callsToday = await getCount(env.RATINGS_KV, globalKey);
   const ipCallsToday = await getCount(env.RATINGS_KV, ipKey);
-  if (callsToday >= MAX_DAILY_LLM_CALLS || ipCallsToday >= MAX_DAILY_LLM_CALLS_PER_IP) {
+  if (callsToday >= MAX_DAILY_LLM_CALLS || (ipCallsToday >= MAX_DAILY_LLM_CALLS_PER_IP && !caller.admin)) {
     if (record && record.rating !== "unknown") return publicView(record, { cached: true, outdated: true });
     return unknown("busy", { ratedDomain, cached: false });
   }
@@ -288,10 +295,13 @@ export default {
     }
 
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+    // Our own seeding script (dev/seed.mjs) pre-rates popular sites: it skips
+    // the per-IP limits below, but never the global daily LLM cap.
+    const admin = Boolean(env.ADMIN_KEY) && request.headers.get("X-Admin-Key") === env.ADMIN_KEY;
 
     // Burst protection: no single IP can hammer these endpoints (this also
     // makes guessing licence keys impractical).
-    const { success: withinBurstLimit } = await env.IP_BURST_LIMITER.limit({ key: clientIp });
+    const { success: withinBurstLimit } = admin ? { success: true } : await env.IP_BURST_LIMITER.limit({ key: clientIp });
     if (!withinBurstLimit) {
       return jsonResponse({ error: "Too many requests, slow down." }, 429);
     }
@@ -309,7 +319,8 @@ export default {
         if (!domain) return jsonResponse({ error: "Missing or invalid domain" }, 400);
         const policyUrl = typeof body.policyUrl === "string" && body.policyUrl.length <= 2048 ? body.policyUrl : null;
         const paid = body.licenseKey ? (await checkLicense(env, body.licenseKey)).valid : false;
-        const result = await rate(env, { ip: clientIp, paid }, domain, policyUrl);
+        const adminHtml = admin && typeof body.policyHtml === "string" ? body.policyHtml : null;
+        const result = await rate(env, { ip: clientIp, paid: paid || admin, admin }, domain, policyUrl, adminHtml);
         return jsonResponse({ ...result, plan: paid ? "plus" : "free" });
       }
 
