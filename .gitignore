@@ -7,3 +7,6 @@ backend/.dev.vars
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Dev tooling
+dev/node_modules/

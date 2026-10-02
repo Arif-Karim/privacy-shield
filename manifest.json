@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Privacy Shield",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Warns you before you give your phone number to a site that may sell it or pass it to companies that will call you.",
   "permissions": [
     "activeTab",
-    "storage",
-    "alarms"
+    "storage"
   ],
   "host_permissions": [
     "https://privacy-shield-api.arifjubairulkarim.workers.dev/*"

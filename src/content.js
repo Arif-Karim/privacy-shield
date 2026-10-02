@@ -15,7 +15,7 @@ const BANNER_STYLE = {
 // Headline overrides for specific "unknown" reasons.
 const UNKNOWN_TITLES = {
   no_policy_link: "Privacy Shield: this page doesn't link to a privacy policy.",
-  quota: "Privacy Shield: this site hasn't been checked yet — you've used this month's free checks.",
+  not_checked_yet: "Privacy Shield: we haven't checked this site yet — have a look yourself before sharing your number, or open the Privacy Shield extension to get it checked.",
 };
 
 // Auto-dismiss delay per rating — "unknown" gets the longest since it asks
@@ -24,8 +24,6 @@ const AUTO_DISMISS_MS = { red: 14000, unknown: 20000 };
 
 let scanTriggered = false;
 let lastPrivacyPolicyUrl = null;
-let lastResult = null;
-let phoneEnteredBeforeResult = false;
 
 function looksLikePhoneInput(input) {
   if (input.type === "hidden" || input.type === "submit" || input.type === "button") return false;
@@ -58,8 +56,7 @@ function el(tag, cssText, text) {
   return node;
 }
 
-// One banner builder for ratings and alerts. `opts`: {bg, title, detail,
-// list, policyUrl, dismissMs}.
+// `opts`: {bg, title, detail, list, policyUrl, dismissMs}.
 function renderBanner(opts) {
   if (document.getElementById(BANNER_ID)) return;
 
@@ -116,23 +113,6 @@ function showRatingBanner(result) {
   });
 }
 
-const ALERT_OUTCOME = {
-  red: "may sell your number or pass it to companies that will contact you",
-  yellow: "may call or text you themselves, or is unclear about who gets your data",
-};
-
-function showPolicyChangeAlert(alert) {
-  const when = new Date(alert.enteredAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-  renderBanner({
-    bg: "#7f1d1d",
-    title: `Privacy Shield alert: ${alert.ratedDomain} changed its privacy policy.`,
-    detail: `You gave them your phone number on ${when}. Their policy now says they ${ALERT_OUTCOME[alert.to] || "handle your data differently"}.` +
-      (alert.quote ? ` Their privacy policy: "${alert.quote}"` : ""),
-    policyUrl: alert.policyUrl,
-    dismissMs: 30000,
-  });
-}
-
 function triggerScan() {
   if (scanTriggered) return;
   scanTriggered = true;
@@ -141,16 +121,26 @@ function triggerScan() {
   lastPrivacyPolicyUrl = privacyPolicyUrl;
   console.log(LOG, "phone input detected, requesting rating. domain:", location.hostname, "privacyPolicyUrl:", privacyPolicyUrl);
 
+  requestScan(privacyPolicyUrl, 1);
+}
+
+// `retries`: Chrome can stop the background service worker mid-request (or
+// the extension can be reloaded), which closes the channel with no reply —
+// one retry covers that.
+function requestScan(privacyPolicyUrl, retries) {
   chrome.runtime.sendMessage(
     { type: "SCAN_REQUEST", domain: location.hostname, privacyPolicyUrl },
     (result) => {
-      if (chrome.runtime.lastError) {
-        console.warn(LOG, "scan request failed:", chrome.runtime.lastError.message);
+      if (chrome.runtime.lastError || !result) {
+        const reason = chrome.runtime.lastError ? chrome.runtime.lastError.message : "no response";
+        if (retries > 0) {
+          setTimeout(() => requestScan(privacyPolicyUrl, retries - 1), 1000);
+          return;
+        }
+        console.log(LOG, "scan request failed:", reason);
         return;
       }
       console.log(LOG, "rating:", result);
-      lastResult = result;
-      if (phoneEnteredBeforeResult) reportPhoneEntered();
       // Interrupt only when it matters: red (your number may reach companies
       // that will contact you) or unknown (we couldn't check, so the reader
       // should). Yellow/green show on the toolbar icon only.
@@ -170,39 +160,7 @@ function scanForPhoneInputs() {
   }
 }
 
-// The user actually typed a number (not just saw the field). Only the site
-// and its rating are recorded, in the extension's local storage — never the
-// number itself. Used by the paid policy-change alerts.
-function reportPhoneEntered() {
-  if (!lastResult) {
-    phoneEnteredBeforeResult = true;
-    return;
-  }
-  phoneEnteredBeforeResult = false;
-  chrome.runtime.sendMessage({ type: "PHONE_ENTERED", result: lastResult });
-}
-
-document.addEventListener(
-  "change",
-  (event) => {
-    const input = event.target;
-    if (input instanceof HTMLInputElement && looksLikePhoneInput(input) && input.value.replace(/\D/g, "").length >= 7) {
-      reportPhoneEntered();
-    }
-  },
-  true
-);
-
 scanForPhoneInputs();
-
-// Pending policy-change alerts are shown once, on the next page opened (top
-// frame only, so an alert never renders inside an embedded iframe).
-if (window === window.top) {
-  chrome.runtime.sendMessage({ type: "GET_PENDING_ALERT" }, (alert) => {
-    if (chrome.runtime.lastError || !alert || alert.error) return;
-    showPolicyChangeAlert(alert);
-  });
-}
 
 const observer = new MutationObserver(() => {
   if (!scanTriggered) scanForPhoneInputs();

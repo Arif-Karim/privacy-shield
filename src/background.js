@@ -69,27 +69,20 @@ async function api(path, body) {
   return { res, data: await res.json() };
 }
 
-// The ratings themselves are cached in the backend; this map just holds the
-// current tab's latest result so the popup has something to show when
-// opened. It's cleared whenever the tab navigates away.
-const latestByTab = new Map();
-
-// Random per-install ID, used only to count the free tier's monthly new-site
-// checks. Reinstalling resets it — acceptable at these amounts; Google
-// sign-in (issue #1) replaces it for paying users later.
-async function getInstallId() {
-  const { installId } = await chrome.storage.local.get("installId");
-  if (installId) return installId;
-  const fresh = crypto.randomUUID();
-  await chrome.storage.local.set({ installId: fresh });
-  return fresh;
+// The ratings themselves are cached in the backend; this just holds each
+// tab's latest result (and the request behind it, so RESCAN can repeat it)
+// for the popup. storage.session, not a Map: the service worker is shut down
+// after ~30s idle, e.g. while the user is in checkout. Cleared whenever the
+// tab navigates away.
+const tabKey = (tabId) => `tab:${tabId}`;
+async function getTabState(tabId) {
+  return (await chrome.storage.session.get(tabKey(tabId)))[tabKey(tabId)] || null;
 }
 
 async function getRating(domain, privacyPolicyUrl) {
   try {
-    const [installId, { licenseKey }] = await Promise.all([getInstallId(), chrome.storage.local.get("licenseKey")]);
-    const { res, data } = await api("/rate", { domain, policyUrl: privacyPolicyUrl, installId, licenseKey });
-    if (data.plan) await chrome.storage.local.set({ plan: data.plan, quota: data.quota || null });
+    const { licenseKey } = await chrome.storage.local.get("licenseKey");
+    const { res, data } = await api("/rate", { domain, policyUrl: privacyPolicyUrl, licenseKey });
     if (!res.ok || data.error) throw new Error(data.error || `backend responded ${res.status}`);
     console.log(LOG, "rating for", domain, "=", data.rating, data.reason || "", "(cached:", data.cached, ")");
     return data;
@@ -97,6 +90,15 @@ async function getRating(domain, privacyPolicyUrl) {
     console.warn(LOG, "backend unavailable:", err);
     return { rating: "unknown", reason: "backend_unavailable", policyUrl: privacyPolicyUrl, guidance: OFFLINE_GUIDANCE };
   }
+}
+
+async function rateForTab(tabId, domain, privacyPolicyUrl) {
+  const result = await getRating(domain, privacyPolicyUrl);
+  if (tabId != null) {
+    await chrome.storage.session.set({ [tabKey(tabId)]: { result, request: { domain, privacyPolicyUrl } } });
+    setBadge(tabId, result.rating);
+  }
+  return result;
 }
 
 async function setBadge(tabId, rating) {
@@ -108,79 +110,13 @@ async function setBadge(tabId, rating) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Paid tier: policy-change alerts.
-//
-// Whenever the user types a phone number into a rated form, we remember the
-// site and the rating it had at that moment (chrome.storage.local, on this
-// device only — never the number itself). With an active licence, the
-// backend re-checks those sites twice a day; if a site's rating gets worse
-// than what the user agreed to, the next page they open shows an alert
-// banner.
-//
-// storage.local: licenseKey, license {valid,status,currentPeriodEnd},
-//   watched {ratedDomain: {rating, enteredAt, alertedRating}},
-//   alerts [{ratedDomain, from, to, quote, policyUrl, enteredAt, detectedAt, shown}]
+// Plus: a licence key lets the backend analyse sites nobody has rated yet.
+// storage.local: licenseKey, license {valid,status,currentPeriodEnd}
 
-const WATCH_ALARM = "policy-watch";
-const WATCH_PERIOD_MINUTES = 12 * 60;
-const WATCH_BATCH = 20; // backend's per-request limit
-const SEVERITY = { green: 0, yellow: 1, red: 2 };
-
-async function recordPhoneEntry(result) {
-  if (!result || !result.ratedDomain || !(result.rating in SEVERITY)) return;
-  const { watched = {} } = await chrome.storage.local.get("watched");
-  // Re-entering a number resets the baseline: the user has now agreed to the
-  // policy as it stands today.
-  watched[result.ratedDomain] = { rating: result.rating, enteredAt: Date.now(), alertedRating: null };
-  await chrome.storage.local.set({ watched });
-  console.log(LOG, "watching", result.ratedDomain, "at rating", result.rating);
-}
-
-async function checkWatchedSites() {
-  const { licenseKey, watched = {}, alerts = [] } = await chrome.storage.local.get(["licenseKey", "watched", "alerts"]);
-  if (!licenseKey) return;
-  const domains = Object.keys(watched);
-  for (let i = 0; i < domains.length; i += WATCH_BATCH) {
-    const { res, data } = await api("/watch", { licenseKey, sites: domains.slice(i, i + WATCH_BATCH) });
-    if (res.status === 402) {
-      await chrome.storage.local.set({ license: data.license });
-      console.log(LOG, "licence no longer active:", data.license && data.license.status);
-      return;
-    }
-    if (!res.ok) throw new Error(data.error || `watch responded ${res.status}`);
-    for (const site of data.sites) {
-      const entry = watched[site.ratedDomain];
-      if (!entry || !(site.rating in SEVERITY)) continue;
-      const alreadyKnown = Math.max(SEVERITY[entry.rating], entry.alertedRating ? SEVERITY[entry.alertedRating] : -1);
-      if (SEVERITY[site.rating] > alreadyKnown) {
-        alerts.push({
-          ratedDomain: site.ratedDomain,
-          from: entry.rating,
-          to: site.rating,
-          quote: (site.quoted_evidence && site.quoted_evidence[0]) || site.reasoning || "",
-          policyUrl: site.policyUrl,
-          enteredAt: entry.enteredAt,
-          detectedAt: Date.now(),
-          shown: false,
-        });
-        entry.alertedRating = site.rating;
-        console.log(LOG, "ALERT:", site.ratedDomain, entry.rating, "->", site.rating);
-      }
-    }
-  }
-  await chrome.storage.local.set({ watched, alerts: alerts.slice(-50), lastWatchCheck: Date.now() });
-}
-
-async function ensureWatchAlarm() {
-  if (!(await chrome.alarms.get(WATCH_ALARM))) {
-    chrome.alarms.create(WATCH_ALARM, { delayInMinutes: 1, periodInMinutes: WATCH_PERIOD_MINUTES });
-  }
-}
-chrome.runtime.onInstalled.addListener(ensureWatchAlarm);
-chrome.runtime.onStartup.addListener(ensureWatchAlarm);
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === WATCH_ALARM) checkWatchedSites().catch((err) => console.warn(LOG, "watch check failed:", err));
+// Data left behind by the old policy-change alerts and free monthly
+// allowance (v0.3.0 and earlier).
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.remove(["watched", "alerts", "lastWatchCheck", "installId", "plan", "quota"]);
 });
 
 async function setLicense(key) {
@@ -188,12 +124,11 @@ async function setLicense(key) {
   if (!res.ok) throw new Error(data.error || `validate responded ${res.status}`);
   if (!data.valid) return data;
   await chrome.storage.local.set({ licenseKey: key.trim().toUpperCase(), license: data });
-  checkWatchedSites().catch((err) => console.warn(LOG, "watch check failed:", err));
   return data;
 }
 
 async function getAccount() {
-  const { licenseKey, license, watched = {}, alerts = [], quota } = await chrome.storage.local.get(["licenseKey", "license", "watched", "alerts", "quota"]);
+  const { licenseKey, license } = await chrome.storage.local.get(["licenseKey", "license"]);
   let checkout = null;
   try {
     checkout = (await (await fetch(`${API_BASE}/config`)).json()).checkout;
@@ -203,10 +138,6 @@ async function getAccount() {
   return {
     licensed: Boolean(licenseKey && license && license.valid),
     licenseStatus: license ? license.status : null,
-    watchedCount: Object.keys(watched).length,
-    recentAlerts: alerts.slice(-3).reverse(),
-    // Last known free-tier usage for this month (from the most recent rating).
-    quota: quota && quota.resetsAt > Date.now() ? quota : null,
     checkout,
   };
 }
@@ -222,34 +153,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "SCAN_REQUEST": {
       console.log(LOG, "SCAN_REQUEST for", message.domain, "privacyPolicyUrl:", message.privacyPolicyUrl);
       const tabId = sender.tab && sender.tab.id;
+      return respondAsync(rateForTab(tabId, message.domain, message.privacyPolicyUrl), sendResponse);
+    }
+    case "RESCAN": {
       return respondAsync(
-        getRating(message.domain, message.privacyPolicyUrl).then((result) => {
-          if (tabId != null) {
-            latestByTab.set(tabId, result);
-            setBadge(tabId, result.rating);
-          }
-          return result;
-        }),
+        getTabState(message.tabId).then((state) => state && rateForTab(message.tabId, state.request.domain, state.request.privacyPolicyUrl)),
         sendResponse
       );
     }
     case "GET_LATEST":
-      sendResponse(latestByTab.get(message.tabId) || null);
-      return false;
-    case "PHONE_ENTERED":
-      return respondAsync(recordPhoneEntry(message.result).then(() => ({ ok: true })), sendResponse);
-    case "GET_PENDING_ALERT":
-      return respondAsync(
-        (async () => {
-          const { alerts = [] } = await chrome.storage.local.get("alerts");
-          const alert = alerts.find((a) => !a.shown);
-          if (!alert) return null;
-          alert.shown = true;
-          await chrome.storage.local.set({ alerts });
-          return alert;
-        })(),
-        sendResponse
-      );
+      return respondAsync(getTabState(message.tabId).then((state) => state && state.result), sendResponse);
     case "SET_LICENSE":
       return respondAsync(setLicense(message.key), sendResponse);
     case "REMOVE_LICENSE":
@@ -261,11 +174,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(tabKey(tabId)));
+
 // A tab loading a new URL invalidates whatever rating we showed for its
 // previous page, so the popup/badge don't show a stale result.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading" && changeInfo.url) {
-    latestByTab.delete(tabId);
+    chrome.storage.session.remove(tabKey(tabId));
     setBadge(tabId, null);
   }
 });

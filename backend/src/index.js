@@ -16,14 +16,11 @@ const MIN_POLICY_CHARS = 500; // less than this is a JS-rendered shell or an err
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_DAILY_LLM_CALLS = 500; // hard global spend ceiling regardless of traffic/abuse
 const MAX_DAILY_LLM_CALLS_PER_IP = 20; // stops one IP from burning the whole day's global budget
-// Free-plan Workers allow 50 outbound fetches per request; each watched site
-// can cost a policy fetch + an LLM call, so the extension sends batches.
-const MAX_WATCH_SITES_PER_REQUEST = 20;
-// Free tier: cached ratings are unlimited (they cost nothing); analysing a
-// site nobody has rated yet costs an LLM call, so free installs get this many
-// per calendar month (UTC). Re-analysing an already-rated site after its
-// policy changes (or after a PROMPT_VERSION bump) never counts.
-const FREE_NEW_SITES_PER_MONTH = 5;
+// Plans: free users see ratings already in the shared cache. Analysing a
+// site nobody has rated yet costs an LLM call, so only Plus does that — and
+// the result is cached for everyone. Re-analysing an already-rated site after
+// its policy changes (or after a PROMPT_VERSION bump) happens for any user,
+// so cached ratings stay current.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -64,9 +61,8 @@ const GUIDANCE = {
     "On a form asking for your phone number, a missing privacy policy is a warning sign.",
     "Before submitting, look for one elsewhere on the site (usually the page footer) and search it for: sell, partners, third parties, marketing.",
   ],
-  quota: [
-    `You've used your ${FREE_NEW_SITES_PER_MONTH} free new-site checks this month. Privacy Shield Plus gives unlimited checks — upgrade from the toolbar icon.`,
-    "Until then, open the privacy policy and search it (Cmd/Ctrl+F) for: sell, partners, third parties, marketing, contact you.",
+  not_checked_yet: [
+    "Open the privacy policy and search it (Cmd/Ctrl+F) for: sell, partners, third parties, marketing, contact you.",
     "\"We don't sell your data\" doesn't rule out sharing it with partners who will contact you — keep reading.",
   ],
   default: [
@@ -170,18 +166,7 @@ function publicView(record, extra = {}) {
   return { ...rest, ...extra };
 }
 
-function quotaKey(caller) {
-  const month = new Date().toISOString().slice(0, 7);
-  return `quota:${month}:${caller.installId ? `install:${caller.installId}` : `ip:${caller.ip}`}`;
-}
-
-async function readQuota(env, caller) {
-  const now = new Date();
-  const resetsAt = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
-  return { used: await getCount(env.RATINGS_KV, quotaKey(caller)), limit: FREE_NEW_SITES_PER_MONTH, resetsAt };
-}
-
-// caller: {ip, installId, paid}
+// caller: {ip, paid}
 async function rate(env, caller, domain, policyUrlRaw) {
   const clientIp = caller.ip;
   if (!policyUrlRaw) return unknown("no_policy_link", { domain });
@@ -203,14 +188,11 @@ async function rate(env, caller, domain, policyUrlRaw) {
     now - record.checkedAt < (record.rating === "unknown" ? UNREADABLE_RETRY_MS : RECHECK_AFTER_MS);
   if (fresh) return publicView(record, { cached: true });
 
-  // A site nobody has rated yet costs an LLM call: that's what the free
-  // monthly allowance is for. (Re-rating a known site never counts.)
+  // A site nobody has rated yet costs an LLM call, so that's Plus only.
   const isNewSite = !record || record.rating === "unknown";
   if (isNewSite && !caller.paid) {
-    const quota = await readQuota(env, caller);
-    if (quota.used >= quota.limit) {
-      return unknown("quota", { ratedDomain, policyUrl: policyUrl.toString(), cached: false });
-    }
+    if (record) return publicView(record, { cached: true });
+    return unknown("not_checked_yet", { ratedDomain, policyUrl: policyUrl.toString(), cached: false });
   }
 
   // Always read the policy from the site itself. The extension only tells us
@@ -250,10 +232,6 @@ async function rate(env, caller, domain, policyUrlRaw) {
   const result = await classifyWithClaude(ratedDomain, fetched.text, env.ANTHROPIC_API_KEY);
   await incrementCount(env.RATINGS_KV, globalKey, callsToday);
   await incrementCount(env.RATINGS_KV, ipKey, ipCallsToday);
-  if (isNewSite && !caller.paid) {
-    const qk = quotaKey(caller);
-    await env.RATINGS_KV.put(qk, String((await getCount(env.RATINGS_KV, qk)) + 1), { expirationTtl: 60 * 60 * 24 * 40 });
-  }
 
   const base = {
     ratedDomain,
@@ -263,35 +241,12 @@ async function rate(env, caller, domain, policyUrlRaw) {
     model: MODEL,
     analyzedAt: now,
     checkedAt: now,
-    // Kept for the planned "alert me if a site I gave my number to changes
-    // its policy" feature: lets us tell a real rating change from a reword.
-    previous: record && record.rating !== "unknown" ? { rating: record.rating, hash: record.hash, analyzedAt: record.analyzedAt } : record?.previous ?? null,
   };
   const next = result.is_privacy_policy
     ? { ...base, rating: result.rating, confidence: result.confidence, reasoning: result.reasoning, quoted_evidence: result.quoted_evidence }
     : { ...base, ...unknown("not_a_policy") };
   await env.RATINGS_KV.put(key, JSON.stringify(next), { expirationTtl: RECORD_TTL_SECONDS });
   return publicView(next, { cached: false });
-}
-
-// Paid tier: re-check the sites a subscriber gave their phone number to, so
-// the extension can alert them when one of those policies gets worse.
-async function watch(env, caller, sites) {
-  const results = [];
-  for (const ratedDomain of sites) {
-    const record = await env.RATINGS_KV.get(`site:${ratedDomain}`, "json");
-    if (!record || !record.policyUrl) {
-      results.push({ ratedDomain, rating: "unknown", reason: "not_rated" });
-      continue;
-    }
-    try {
-      results.push({ ...(await rate(env, caller, ratedDomain, record.policyUrl)), ratedDomain });
-    } catch (err) {
-      console.log("watch refresh failed", ratedDomain, String(err));
-      results.push({ ...publicView(record), ratedDomain });
-    }
-  }
-  return results;
 }
 
 function readDomain(value) {
@@ -321,7 +276,7 @@ export default {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Not found" }, 404);
     }
-    if (!["/rate", "/license/validate", "/watch"].includes(url.pathname)) {
+    if (!["/rate", "/license/validate"].includes(url.pathname)) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
@@ -353,26 +308,13 @@ export default {
         const domain = readDomain(body.domain);
         if (!domain) return jsonResponse({ error: "Missing or invalid domain" }, 400);
         const policyUrl = typeof body.policyUrl === "string" && body.policyUrl.length <= 2048 ? body.policyUrl : null;
-        const installId = typeof body.installId === "string" && /^[0-9a-f-]{36}$/.test(body.installId) ? body.installId : null;
         const paid = body.licenseKey ? (await checkLicense(env, body.licenseKey)).valid : false;
-        const caller = { ip: clientIp, installId, paid };
-        const result = await rate(env, caller, domain, policyUrl);
-        // Free installs get their monthly usage back so the popup can show it.
-        return jsonResponse(paid ? { ...result, plan: "plus" } : { ...result, plan: "free", quota: await readQuota(env, caller) });
+        const result = await rate(env, { ip: clientIp, paid }, domain, policyUrl);
+        return jsonResponse({ ...result, plan: paid ? "plus" : "free" });
       }
 
-      const license = await checkLicense(env, body.licenseKey);
-      if (url.pathname === "/license/validate") {
-        return jsonResponse(license);
-      }
-
-      // /watch
-      if (!license.valid) return jsonResponse({ error: "License not active", license }, 402);
-      const sites = [...new Set((Array.isArray(body.sites) ? body.sites : []).map(readDomain).filter(Boolean))];
-      if (sites.length > MAX_WATCH_SITES_PER_REQUEST) {
-        return jsonResponse({ error: `At most ${MAX_WATCH_SITES_PER_REQUEST} sites per request` }, 400);
-      }
-      return jsonResponse({ sites: await watch(env, { ip: clientIp, installId: null, paid: true }, sites) });
+      // /license/validate
+      return jsonResponse(await checkLicense(env, body.licenseKey));
     } catch (err) {
       console.log(url.pathname, "failed", String(err));
       return jsonResponse({ error: String(err) }, 502);

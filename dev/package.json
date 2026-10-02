@@ -1,0 +1,12 @@
+{
+  "name": "privacy-shield-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node e2e.mjs",
+    "dev": "./run.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

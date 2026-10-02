@@ -100,8 +100,6 @@ opens a pre-filled email with diagnostics.
    global and per-IP LLM caps, call Claude (`claude-sonnet-5`, low effort,
    JSON-schema structured output), store the result. If the model says the
    page isn't really a privacy policy → `unknown / not_a_policy`.
-   The previous rating is kept in `previous` for the planned
-   "alert me when a site changes its policy" feature.
 
 **Bump `PROMPT_VERSION` whenever `SYSTEM_PROMPT` or `SCHEMA` changes** — every
 cached rating made under the old version is then re-analyzed on its next
@@ -116,17 +114,15 @@ request instead of being served stale.
   the raw page or text: pages reorder/repeat blocks between loads (A/B tests,
   CDN variants), which changed a plain hash on 5 of 11 real sites tested.
 
-## Free quota
+## Free vs Plus
 
-Cached ratings are free and unlimited. Rating a site **nobody has rated yet**
-costs an LLM call, so free installs get `FREE_NEW_SITES_PER_MONTH` (5) per UTC
-month. `background.js` sends a random `installId` (created once, in
-`storage.local`) and, if present, the `licenseKey` with every `/rate` call; the
-backend counts new-site analyses in `quota:<YYYY-MM>:install:<id>` and returns
-`unknown / quota` (with upgrade guidance) once the allowance is used. Re-rating
-an already-known site (policy changed, or a `PROMPT_VERSION` bump) never
-counts. Free responses carry `quota {used, limit, resetsAt}`, which the popup
-shows.
+Cached ratings are free for everyone. Rating a site **nobody has rated yet**
+costs an LLM call, so only Plus does it: `background.js` sends the
+`licenseKey` (if any) with every `/rate` call, and for a free caller a site
+with no rating comes back as `unknown / not_checked_yet` (with upgrade
+guidance). The new rating is cached, so free users see it from then on.
+Re-rating an already-known site (policy changed, or a `PROMPT_VERSION` bump)
+happens for any caller, so cached ratings stay current.
 
 ## Paid tier: Privacy Shield Plus
 
@@ -136,17 +132,16 @@ shows.
    to `GET /license/claim?session_id=…` (`backend/src/license.js`), which
    confirms the checkout with Stripe, mints a `PS-XXXX-…` key once per session,
    and shows it.
-2. **Activate** — popup → `SET_LICENSE` → `POST /license/validate`. The
+2. **Ask** — the popup only shows the "Help us check this site" support
+   card (with the Payment Links) on a `not_checked_yet` result; otherwise it
+   just has a small "Have a supporter key?" link.
+3. **Activate** — popup → `SET_LICENSE` → `POST /license/validate`. The
    backend re-confirms the subscription with Stripe at most every 12h
    (`checkLicense`), so cancellations take effect without webhooks.
-3. **Watch** — `content.js` sends `PHONE_ENTERED` when a phone field gets a
-   number (≥7 digits) on a rated site; `background.js` stores the site and its
-   rating in `storage.local.watched` (never the number). A `policy-watch`
-   alarm (every 12h) posts those domains to `POST /watch`, which re-checks each
-   policy through the same `rate()` path.
-4. **Alert** — if a site's rating is now worse than what the user agreed to,
-   it's queued in `storage.local.alerts`; the next top-level page shows it once
-   via `GET_PENDING_ALERT` → `showPolicyChangeAlert()`.
+   On a `not_checked_yet` page the popup then sends `RESCAN`, so the site is
+   checked straight away.
+4. **Use** — the key goes with every `/rate` call; a valid key lets the
+   backend analyse sites with no rating yet.
 
 Licence keys are a stopgap until Google sign-in (GitHub issue #1).
 

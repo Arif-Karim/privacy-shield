@@ -1,4 +1,4 @@
-// Licence keys for the paid tier (policy-change alerts).
+// Licence keys for the paid tier (Plus: checks sites nobody has rated yet).
 //
 // Flow: Stripe Payment Link → checkout → Stripe redirects to
 // /license/claim?session_id=… → we confirm the session with Stripe, mint a
@@ -103,13 +103,13 @@ export async function claimPage(env, sessionId) {
   }
 
   return page(
-    "Your Privacy Shield licence key",
-    `<h1>Thanks — Privacy Shield Plus is ready to switch on</h1>
-<p>Your licence key:</p>
+    "Your Privacy Shield supporter key",
+    `<h1>Thanks for supporting Privacy Shield</h1>
+<p>Your supporter key:</p>
 <div class="key"><span id="k">${key}</span><button onclick="navigator.clipboard.writeText(document.getElementById('k').textContent);this.textContent='Copied'">Copy</button></div>
 <ol>
   <li>Click the Privacy Shield icon in your browser toolbar.</li>
-  <li>Paste the key under <b>Privacy Shield Plus</b> and press <b>Activate</b>.</li>
+  <li>Click <b>Have a supporter key?</b>, paste the key and press <b>Activate</b>.</li>
 </ol>
 <p class="muted">Keep this key somewhere safe — you'll need it if you reinstall the extension. You can manage or cancel your subscription from the link in your Stripe receipt email.</p>`
   );

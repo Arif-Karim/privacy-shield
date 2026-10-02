@@ -42,11 +42,9 @@ WHAT IT DOES
   read the whole thing.
 - If a site's policy can't be read, it tells you so and shows what to look
   for yourself instead of guessing.
-- Free: every site that's already been checked, plus 5 new-site checks a
-  month.
-- Privacy Shield Plus ($1.50/month or $12/year): unlimited new-site checks,
-  and an alert if a site you gave your number to later changes its privacy
-  policy for the worse.
+- Free: ratings for every site that's already been checked.
+- Privacy Shield Plus ($1.50/month or $12/year): also checks sites no one
+  has checked yet, and shares those ratings with everyone.
 
 WHAT IT DOESN'T DO
 - Never reads, stores or sends what you type into forms.
@@ -68,7 +66,7 @@ rather than relying on this label being exact).
 
 ## Privacy practices tab
 
-Permissions requested: `activeTab`, `storage`, `alarms`, host permission for
+Permissions requested: `activeTab`, `storage`, host permission for
 the Privacy Shield backend only, and a content script on all sites.
 
 **Host permission / content script justification:**
@@ -94,18 +92,8 @@ click the toolbar icon.
 **storage justification:**
 
 ```
-Stores, on the user's device, the list of sites where they entered a phone
-number (domain, rating at the time, date — never the number), their
-subscription licence key if they have one, and pending policy-change
-alerts.
-```
-
-**alarms justification:**
-
-```
-For subscribers, re-checks the privacy policies of sites where they entered
-their phone number about twice a day, so the extension can alert them if a
-policy changes for the worse.
+Stores the user's Privacy Shield Plus licence key on their device, if they
+have one.
 ```
 
 **Remote code justification:**

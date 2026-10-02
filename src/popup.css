@@ -92,28 +92,34 @@ body {
   color: #2563eb;
 }
 
-.section {
+.support {
   margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid #e5e7eb;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  font-size: 12px;
+  color: #1e3a8a;
 }
 
-.section-title {
-  font-size: 12px;
+.support-title {
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.support p {
+  margin: 0 0 8px;
+}
+
+.key-area {
+  margin-top: 8px;
+  font-size: 11px;
   color: #6b7280;
 }
 
-.alerts {
+.key-area .key-row {
   margin-top: 6px;
-  font-size: 12px;
-  color: #374151;
-}
-
-.alerts p {
-  margin: 0 0 8px;
 }
 
 .buy-row {
@@ -147,14 +153,6 @@ body {
   font: 12px ui-monospace, Menlo, monospace;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-}
-
-.alert-item {
-  margin: 0 0 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: #fef2f2;
-  color: #7f1d1d;
 }
 
 .link-btn {

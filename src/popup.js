@@ -5,12 +5,13 @@ const STATUS_TEXT = {
   unknown: "Couldn't check this site's privacy policy automatically. Here's what to look for:",
 };
 
+const NOT_CHECKED_TEXT = "We haven't checked this site's privacy policy yet. Until we do, here's what to look for:";
+
 const UNKNOWN_REASON_TEXT = {
   no_policy_link: "This page doesn't link to a privacy policy.",
   unreadable: "The site blocked us from reading its privacy policy.",
   not_a_policy: "The privacy link doesn't lead to an actual privacy policy.",
   busy: "Too many new sites checked today — try again later.",
-  quota: "This site hasn't been checked yet, and you've used this month's free new-site checks.",
   backend_unavailable: "Privacy Shield's server couldn't be reached.",
 };
 
@@ -112,11 +113,13 @@ async function main() {
   const status = document.getElementById("status");
   const note = document.getElementById("note");
 
+  dot.className = "dot";
+  document.getElementById("reasons").textContent = "";
   if (!result) {
     status.textContent = "No phone number field detected on this page yet.";
   } else {
     dot.classList.add(result.rating);
-    status.textContent = STATUS_TEXT[result.rating] || STATUS_TEXT.unknown;
+    status.textContent = result.reason === "not_checked_yet" ? NOT_CHECKED_TEXT : STATUS_TEXT[result.rating] || STATUS_TEXT.unknown;
 
     const notes = [];
     if (result.rating === "unknown" && UNKNOWN_REASON_TEXT[result.reason]) notes.push(UNKNOWN_REASON_TEXT[result.reason]);
@@ -143,7 +146,7 @@ async function main() {
     }
   }
 
-  document.getElementById("reportBtn").addEventListener("click", handleReportClick);
+  await renderAccount(result);
 }
 
 function node(tag, className, text) {
@@ -153,58 +156,58 @@ function node(tag, className, text) {
   return n;
 }
 
-const RATING_WORDS = { green: "safe", yellow: "caution", red: "may sell your number" };
-
-async function renderAlertsSection() {
-  const box = document.getElementById("alerts");
+// Supporters (Privacy Shield Plus) get sites nobody has rated yet checked,
+// which costs us an LLM call each. So the ask only appears on such a site;
+// otherwise the popup just keeps a small link for entering a key.
+async function renderAccount(result) {
+  const support = document.getElementById("support");
+  const keyArea = document.getElementById("keyArea");
+  support.hidden = true;
+  support.textContent = "";
+  keyArea.textContent = "";
   const account = await chrome.runtime.sendMessage({ type: "GET_ACCOUNT" });
-  box.textContent = "";
-  if (!account || account.error) {
-    box.textContent = "Couldn't load alert settings.";
-    return;
-  }
-
-  const plural = (n) => `${n} site${n === 1 ? "" : "s"}`;
+  if (!account || account.error) return;
 
   if (account.licensed) {
-    box.appendChild(node("p", null, `Plus is active: unlimited new-site checks. Watching ${plural(account.watchedCount)} where you've entered your phone number — you'll get a banner if any of them changes its policy for the worse.`));
-    for (const a of account.recentAlerts) {
-      box.appendChild(node("div", "alert-item", `${a.ratedDomain}: ${RATING_WORDS[a.from]} → ${RATING_WORDS[a.to]} (${new Date(a.detectedAt).toLocaleDateString()})`));
-    }
-    const remove = node("button", "link-btn", "Remove licence key");
+    keyArea.appendChild(node("span", null, "Supporter — thank you! "));
+    const remove = node("button", "link-btn", "Remove key");
     remove.onclick = async () => {
       await chrome.runtime.sendMessage({ type: "REMOVE_LICENSE" });
-      renderAlertsSection();
+      renderAccount(result);
     };
-    box.appendChild(remove);
+    keyArea.appendChild(remove);
     return;
   }
 
-  if (account.quota) {
-    const resets = new Date(account.quota.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-    box.appendChild(node("p", null, `Free plan: ${Math.min(account.quota.used, account.quota.limit)} of ${account.quota.limit} new-site checks used this month (resets ${resets}). Sites already checked by anyone are always free.`));
-  }
-  box.appendChild(node("p", null, "Plus: unlimited new-site checks, and a heads-up if a site you gave your number to changes its policy to sell it."));
-  if (account.watchedCount) box.appendChild(node("p", null, `You've entered your phone number on ${plural(account.watchedCount)}.`));
-  if (account.licenseStatus && !["invalid_key", "unknown_key"].includes(account.licenseStatus)) {
-    box.appendChild(node("p", null, `Your subscription is ${account.licenseStatus.replace("_", " ")} — renew it to turn alerts back on.`));
+  if (result && result.reason === "not_checked_yet") {
+    support.hidden = false;
+    support.appendChild(node("div", "support-title", "Help us check this site"));
+    support.appendChild(node("p", null, "Checking a new site costs us money, so it's done for supporters. Support Privacy Shield and we'll check this site now. Every site we check is added to the shared database, free for everyone after that."));
+    if (account.licenseStatus && !["invalid_key", "unknown_key"].includes(account.licenseStatus)) {
+      support.appendChild(node("p", null, `Your support has ${account.licenseStatus.replace("_", " ")} — renew it to keep checking new sites.`));
+    }
+    const buy = node("div", "buy-row");
+    const links = account.checkout || {};
+    for (const [label, url] of [["$1.50 / month", links.monthly], ["$12 / year", links.yearly]]) {
+      if (!url || !isSafeHttpUrl(url)) continue;
+      const b = node("button", null, label);
+      b.onclick = () => chrome.tabs.create({ url });
+      buy.appendChild(b);
+    }
+    if (buy.childElementCount) support.appendChild(buy);
   }
 
-  const buy = node("div", "buy-row");
-  const links = account.checkout || {};
-  for (const [label, url] of [["$1.50 / month", links.monthly], ["$12 / year", links.yearly]]) {
-    if (!url || !isSafeHttpUrl(url)) continue;
-    const b = node("button", null, label);
-    b.onclick = () => chrome.tabs.create({ url });
-    buy.appendChild(b);
-  }
-  if (buy.childElementCount) box.appendChild(buy);
-  else box.appendChild(node("p", null, "Subscriptions are opening soon."));
-
+  const toggle = node("button", "link-btn", "Have a supporter key?");
+  const form = node("div");
+  form.hidden = true;
+  toggle.onclick = () => {
+    form.hidden = !form.hidden;
+    if (!form.hidden) input.focus();
+  };
   const row = node("div", "key-row");
   const input = node("input");
   input.placeholder = "PS-XXXX-XXXX-XXXX-XXXX";
-  input.setAttribute("aria-label", "Licence key");
+  input.setAttribute("aria-label", "Supporter key");
   const activate = node("button", null, "Activate");
   const msg = node("div", "msg");
   activate.onclick = async () => {
@@ -212,12 +215,23 @@ async function renderAlertsSection() {
     msg.textContent = "Checking…";
     const res = await chrome.runtime.sendMessage({ type: "SET_LICENSE", key: input.value });
     activate.disabled = false;
-    if (res && res.valid) return renderAlertsSection();
-    msg.textContent = res && res.error ? "Couldn't reach the server — try again." : "That key isn't active. Check it and try again.";
+    if (!res || !res.valid) {
+      msg.textContent = res && res.error ? "Couldn't reach the server — try again." : "That key isn't active. Check it and try again.";
+      return;
+    }
+    if (result && result.reason === "not_checked_yet") {
+      // They supported to get this site checked — do it now.
+      document.getElementById("status").textContent = "Checking this site…";
+      document.getElementById("note").textContent = "";
+      document.getElementById("reasons").textContent = "";
+      await chrome.runtime.sendMessage({ type: "RESCAN", tabId: currentTab.id });
+    }
+    main();
   };
   row.append(input, activate);
-  box.append(row, msg);
+  form.append(row, msg);
+  keyArea.append(toggle, form);
 }
 
+document.getElementById("reportBtn").addEventListener("click", handleReportClick);
 main();
-renderAlertsSection();
