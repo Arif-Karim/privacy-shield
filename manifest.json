@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Privacy Shield",
+  "name": "Privacy Shield – Phone Number & Spam Call Checker",
   "version": "0.4.0",
-  "description": "Warns you before you give your phone number to a site that may sell it or pass it to companies that will call you.",
+  "description": "Warns you before you give your phone number to a site that may sell it to telemarketers and spam callers.",
   "permissions": [
     "activeTab",
     "storage"

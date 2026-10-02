@@ -145,6 +145,18 @@ happens for any caller, so cached ratings stay current.
 
 Licence keys are a stopgap until Google sign-in (GitHub issue #1).
 
+## Building and testing
+
+- `dev/build.sh` builds the store zip (`dist/privacy-shield.zip`) and runs
+  `dev/e2e.mjs` against exactly that build: Playwright loads it into a real
+  Chromium and checks the banners, cached ratings, a stopped service worker,
+  repeated reloads, and the dev auto-reload. GitHub Actions
+  (`.github/workflows/test.yml`) runs it on every push. The backend allows 10
+  requests a minute per IP, so leave a minute between local runs.
+- `src/dev-reload.js` (dev only, left out of the zip): when loaded unpacked,
+  the extension reloads itself within a second of a file changing and
+  refreshes the tabs it was active in.
+
 ## Debugging tips
 
 | Code | Logs | How to open it |

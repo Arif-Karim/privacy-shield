@@ -1,16 +1,17 @@
 // The backend allows 10 requests a minute per IP, and this makes ~9 — wait a
-// minute between runs.
+// minute between runs (dev/build.sh runs this after every build).
 //
 // End-to-end check: loads the extension from this repo into a real Chromium,
 // opens phone-form pages and checks what the user would see. Talks to the
 // live backend, but only with free (non-licensed) requests, which never
 // trigger a paid analysis. Run: cd dev && npm test
 import { chromium } from "playwright";
-import { mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const EXTENSION_DIR = resolve(import.meta.dirname, "..");
+// dev/build.sh points this at the store build; defaults to the repo itself.
+const EXTENSION_DIR = resolve(import.meta.dirname, process.env.EXTENSION_DIR || "..");
 const BANNER = "#privacy-shield-banner";
 
 // Pages are served by Playwright itself, so no server is needed. The privacy
@@ -129,5 +130,33 @@ await check("5 reloads in a row all get a result (no dropped messages)", async (
 });
 
 await context.close();
+
+// Separate browser, loaded from a scratch copy of the repo, so editing a file
+// can't touch the real one. No phone field, so no backend requests.
+// Checks the watcher notices an edit and asks Chrome to reload. (Chromium
+// launched with --load-extension unloads, rather than restarts, an extension
+// that reloads itself, so the restart itself can only be seen in normal
+// Chrome with "Load unpacked".)
+await check("dev build reloads itself when a file changes", async () => {
+  const copy = mkdtempSync(join(tmpdir(), "ps-src-"));
+  for (const part of ["manifest.json", "src", "icons"]) cpSync(resolve(import.meta.dirname, "..", part), join(copy, part), { recursive: true });
+  const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "ps-e2e-")), {
+    channel: "chromium",
+    headless: true,
+    args: [`--disable-extensions-except=${copy}`, `--load-extension=${copy}`],
+  });
+  try {
+    const sw = ctx.serviceWorkers()[0] ?? (await ctx.waitForEvent("serviceworker"));
+    const reloading = new Promise((done) => sw.on("console", (m) => m.text().includes("file changed") && done()));
+    await new Promise((r) => setTimeout(r, 1500)); // let the watcher take its first snapshot
+    const popupCss = join(copy, "src/popup.css");
+    writeFileSync(popupCss, readFileSync(popupCss, "utf8") + "\n/* edited */\n");
+    const timeout = new Promise((_, fail) => setTimeout(() => fail(new Error("no reload within 5s of the edit")), 5000));
+    await Promise.race([reloading, timeout]);
+  } finally {
+    await ctx.close();
+  }
+});
+
 for (const [status, name, why] of results) console.log(`${status === "PASS" ? "✓" : "✗"} ${name}${why ? `\n    ${why}` : ""}`);
 process.exit(results.some(([s]) => s === "FAIL") ? 1 : 0);

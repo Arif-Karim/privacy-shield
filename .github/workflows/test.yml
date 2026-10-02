@@ -1,0 +1,24 @@
+name: Test extension
+
+on:
+  push:
+    paths: ["manifest.json", "src/**", "icons/**", "dev/**", ".github/workflows/test.yml"]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: dev
+      - run: npx playwright install --with-deps chromium
+        working-directory: dev
+      - run: ./dev/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: privacy-shield-zip
+          path: dist/privacy-shield.zip

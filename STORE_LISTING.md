@@ -3,19 +3,23 @@
 Drafted for the Developer Dashboard. Character counts noted against current
 store limits — re-check limits at submission time in case they've changed.
 
-## Name (max 45 chars)
+## Name (max 75 chars)
+
+Comes from `manifest.json`. Keywords people search for ("phone number",
+"spam call") are in the name because several other extensions are also
+called Privacy Shield.
 
 ```
-Privacy Shield
+Privacy Shield – Phone Number & Spam Call Checker
 ```
-(14 chars)
+(49 chars)
 
 ## Summary / short description (max 132 chars)
 
 ```
-Warns you before you give your phone number to a site that may sell it or pass it to companies that will call you.
+Warns you before you give your phone number to a site that may sell it to telemarketers and spam callers.
 ```
-(113 chars)
+(105 chars)
 
 ## Detailed description
 

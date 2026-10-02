@@ -1,3 +1,5 @@
+import "./dev-reload.js";
+
 const LOG = "[Privacy Shield:bg]";
 
 // All analysis happens in our backend (Cloudflare Worker): it fetches the
