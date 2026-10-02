@@ -47,7 +47,7 @@ WHAT IT DOES
 - If a site's policy can't be read, it tells you so and shows what to look
   for yourself instead of guessing.
 - Free: ratings for every site that's already been checked.
-- Privacy Shield Plus ($1.50/month or $12/year): also checks sites no one
+- Privacy Shield Supporter ($1.50/month or $12/year): also checks sites no one
   has checked yet, and shares those ratings with everyone.
 
 WHAT IT DOESN'T DO
@@ -96,7 +96,7 @@ click the toolbar icon.
 **storage justification:**
 
 ```
-Stores the user's Privacy Shield Plus licence key on their device, if they
+Stores the user's Privacy Shield supporter key on their device, if they
 have one.
 ```
 
