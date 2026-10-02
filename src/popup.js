@@ -157,8 +157,22 @@ function node(tag, className, text) {
 }
 
 // Supporters (Privacy Shield Plus) get sites nobody has rated yet checked,
-// which costs us an LLM call each. So the ask only appears on such a site;
-// otherwise the popup just keeps a small link for entering a key.
+// which costs us an LLM call each. So the full ask only appears on such a
+// site; otherwise the popup keeps a small link that opens the buy buttons and
+// the key box.
+
+function buyButtons(account) {
+  const buy = node("div", "buy-row");
+  const links = account.checkout || {};
+  for (const [label, url] of [["$1.50 / month", links.monthly], ["$12 / year", links.yearly]]) {
+    if (!url || !isSafeHttpUrl(url)) continue;
+    const b = node("button", null, label);
+    b.onclick = () => chrome.tabs.create({ url });
+    buy.appendChild(b);
+  }
+  return buy.childElementCount ? buy : null;
+}
+
 async function renderAccount(result) {
   const support = document.getElementById("support");
   const keyArea = document.getElementById("keyArea");
@@ -179,26 +193,27 @@ async function renderAccount(result) {
     return;
   }
 
-  if (result && result.reason === "not_checked_yet") {
+  const asking = Boolean(result && result.reason === "not_checked_yet");
+  if (asking) {
     support.hidden = false;
     support.appendChild(node("div", "support-title", "Help us check this site"));
     support.appendChild(node("p", null, "Checking a new site costs us money, so it's done for supporters. Support Privacy Shield and we'll check this site now. Every site we check is added to the shared database, free for everyone after that."));
     if (account.licenseStatus && !["invalid_key", "unknown_key"].includes(account.licenseStatus)) {
       support.appendChild(node("p", null, `Your support has ${account.licenseStatus.replace("_", " ")} — renew it to keep checking new sites.`));
     }
-    const buy = node("div", "buy-row");
-    const links = account.checkout || {};
-    for (const [label, url] of [["$1.50 / month", links.monthly], ["$12 / year", links.yearly]]) {
-      if (!url || !isSafeHttpUrl(url)) continue;
-      const b = node("button", null, label);
-      b.onclick = () => chrome.tabs.create({ url });
-      buy.appendChild(b);
-    }
-    if (buy.childElementCount) support.appendChild(buy);
+    const buy = buyButtons(account);
+    if (buy) support.appendChild(buy);
   }
 
-  const toggle = node("button", "link-btn", "Have a supporter key?");
-  const form = node("div");
+  const toggle = node("button", "link-btn", asking ? "Have a supporter key?" : "Support Privacy Shield or enter your key");
+  const form = node("div", "key-panel");
+  // The support card above already has the buy buttons on this page.
+  const buy = asking ? null : buyButtons(account);
+  if (buy) {
+    form.appendChild(node("p", null, "Supporters can get any site checked, even ones nobody has checked before. Every check is added to the shared database for everyone."));
+    form.appendChild(buy);
+    form.appendChild(node("div", "key-label", "Already a supporter? Enter your key:"));
+  }
   form.hidden = true;
   toggle.onclick = () => {
     form.hidden = !form.hidden;
@@ -219,7 +234,7 @@ async function renderAccount(result) {
       msg.textContent = res && res.error ? "Couldn't reach the server — try again." : "That key isn't active. Check it and try again.";
       return;
     }
-    if (result && result.reason === "not_checked_yet") {
+    if (asking) {
       // They supported to get this site checked — do it now.
       document.getElementById("status").textContent = "Checking this site…";
       document.getElementById("note").textContent = "";
