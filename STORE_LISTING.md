@@ -23,42 +23,35 @@ Warns you before you give your phone number to a site that may sell it to telema
 
 ## Detailed description
 
+Plain text only: the store doesn't render Markdown, and it keeps every line
+break, so each paragraph or bullet must be a single line (no hard wrapping).
+Copy everything between the fences as is.
+
 ```
-Privacy Shield warns you before you type your phone number into a website
-that may sell it, or pass it to other companies who will call and text you.
+Privacy Shield warns you before you type your phone number into a website that may sell it, or pass it to other companies who will call and text you.
 
 WHY THIS EXISTS
-Lots of sites — especially quote/lead-gen forms (insurance, solar, loans,
-home services) — pass your phone number to a network of "partners" the
-moment you hit submit. Their privacy policy usually says so, buried in
-paragraphs of legal text nobody reads. That's how a single quote request
-turns into weeks of sales calls — and how numbers end up on lists that
-scammers buy.
+Lots of sites, especially quote and lead-gen forms (insurance, solar, loans, home services), pass your phone number to a network of "partners" the moment you hit submit. Their privacy policy usually says so, buried in paragraphs of legal text nobody reads. That's how a single quote request turns into weeks of sales calls, and how numbers end up on lists that scammers buy.
 
 WHAT IT DOES
-- Notices when a form asks for your phone number.
-- Reads that site's own privacy policy with AI (the Claude API) and tells
-  you, in plain English, who your number may end up with:
-  red — the site may sell it or share it with companies that will contact you
-  yellow — the site may call or text you itself, or the policy is unclear
-  green — your details only go to companies working for the site
-- Shows the actual sentence from their policy as evidence, with a link to
-  read the whole thing.
-- If a site's policy can't be read, it tells you so and shows what to look
-  for yourself instead of guessing.
-- Free: ratings for every site that's already been checked.
-- Privacy Shield Supporter ($1.50/month or $12/year): also checks sites no one
-  has checked yet, and shares those ratings with everyone.
+• Notices when a form asks for your phone number.
+• Reads that site's own privacy policy with AI (the Claude API) and tells you, in plain English, who your number may end up with:
+   Red: the site may sell it or share it with companies that will contact you
+   Yellow: the site may call or text you itself, or the policy is unclear
+   Green: your details only go to companies working for the site
+• Shows the actual sentence from their policy as evidence, with a link to read the whole thing.
+• If a site's policy can't be read, it tells you so and shows what to look for yourself instead of guessing.
+
+FREE AND SUPPORTER
+• Free: ratings for every site that's already been checked.
+• Supporter (US$1.50/month or US$12/year): also gets sites checked that nobody has checked yet. Every check is added to the shared database, free for everyone after that.
 
 WHAT IT DOESN'T DO
-- Never reads, stores or sends what you type into forms.
-- Doesn't track your browsing history. Only a site's domain and privacy
-  policy link are sent, and only when a phone-number field appears.
-- No account, no sign-up, no advertising or third-party analytics.
+• Never reads, stores or sends what you type into forms.
+• Doesn't track your browsing. Only a site's domain and privacy policy link are sent, and only when a phone-number field appears.
+• No account, no sign-up, no advertising or third-party analytics.
 
-Found a site where this doesn't work right? Use the "Report an issue"
-button in the popup — it opens a pre-filled email with diagnostic details
-so it can actually get investigated and fixed.
+Found a site where this doesn't work right? Use the "Report an issue" button in the popup. It opens a pre-filled email with diagnostic details so it can be investigated and fixed.
 ```
 
 ## Category

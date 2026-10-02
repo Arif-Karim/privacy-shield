@@ -147,7 +147,7 @@ Licence keys are a stopgap until Google sign-in (GitHub issue #1).
 
 ## Building and testing
 
-- `dev/build.sh` builds the store zip (`dist/privacy-shield.zip`) and runs
+- `dev/build.sh` builds the store zip (`dist/privacy-shield-v<version>.zip`) and runs
   `dev/e2e.mjs` against exactly that build: Playwright loads it into a real
   Chromium and checks the banners, cached ratings, a stopped service worker,
   repeated reloads, and the dev auto-reload. GitHub Actions
