@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow:hidden}
+body{font-family:Inter,-apple-system,sans-serif;color:#fff;-webkit-font-smoothing:antialiased;
+ background:#0b1033;position:relative}
+.bg{position:absolute;inset:0;
+ background:
+  radial-gradient(circle at 85% 20%, rgba(59,91,240,.55), transparent 55%),
+  radial-gradient(circle at 10% 110%, rgba(99,102,241,.35), transparent 50%),
+  linear-gradient(135deg,#0b1033 0%,#141b52 100%)}
+.grid{position:absolute;inset:0;opacity:.07;
+ background-image:linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)}
+.brand{display:flex;align-items:center;font-weight:700;letter-spacing:-.01em}
+.brand img{display:block}
+h1{font-weight:800;letter-spacing:-.035em;line-height:1.02}
+h1 em{font-style:normal;color:#8ea2ff}
+.card{background:#fff;color:#111827;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+.label{color:#4b5563;font-weight:600}
+.field{border:2px solid #3b5bf0;color:#111827;font-weight:500;display:flex;align-items:center;
+ box-shadow:0 0 0 4px rgba(59,91,240,.18)}
+.caret{background:#3b5bf0;display:inline-block}
+.warn{background:#dc2626;color:#fff;font-weight:700;display:flex;align-items:center;box-shadow:0 10px 24px rgba(220,38,38,.45)}
+.warn svg{flex:none}
+.sub{color:#c7d0ff;font-weight:500}
