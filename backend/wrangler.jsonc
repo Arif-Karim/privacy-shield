@@ -8,8 +8,8 @@
   },
   // Stripe Payment Links (Privacy Shield test mode). Swap for live-mode links at launch.
   "vars": {
-    "CHECKOUT_MONTHLY_URL": "https://buy.stripe.com/test_4gMfZi1vVgiv18BeeS7g400",
-    "CHECKOUT_YEARLY_URL": "https://buy.stripe.com/test_cNi5kE3E32rF5oRb2G7g401"
+    "CHECKOUT_MONTHLY_URL": "https://buy.stripe.com/4gMfZi1vVgiv18BeeS7g400",
+    "CHECKOUT_YEARLY_URL": "https://buy.stripe.com/cNi5kE3E32rF5oRb2G7g401"
   },
   "kv_namespaces": [
     { "binding": "RATINGS_KV", "id": "688c65b805cf43b3990ff237c4a07f96" }
