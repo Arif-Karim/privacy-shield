@@ -23,6 +23,7 @@ body {
 }
 
 .dot.green { background: #16a34a; }
+.dot.orange { background: #f97316; }
 .dot.yellow { background: #eab308; }
 .dot.red { background: #dc2626; }
 .dot.unknown { background: #475569; }

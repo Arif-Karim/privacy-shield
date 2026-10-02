@@ -157,6 +157,24 @@ Licence keys are a stopgap until Google sign-in (GitHub issue #1).
   the extension reloads itself within a second of a file changing and
   refreshes the tabs it was active in.
 
+## Rating pipeline (dev/pipeline)
+
+The rating rules live in `backend/src/rubric.js` (red / orange / yellow /
+green, `PROMPT_VERSION`), shared by the live backend (Anthropic API) and the
+batch pipeline (headless Claude Code on the owner's Claude plan, so bulk
+re-rating costs no API money). `node dev/pipeline/run.mjs`:
+
+- `eval` rates the sites in `labels.csv` and scores them — run it after any
+  rubric change; add a row whenever a rating turns out wrong.
+- `all --db` fetches every policy (sites.txt + everything in the database),
+  rates anything not yet rated under the current `PROMPT_VERSION`, and stores
+  results via the admin-only `/admin/rating` endpoint.
+- Hub pages that only link to the real policies are followed one step.
+
+Workflow for a rubric change: edit rubric.js and bump `PROMPT_VERSION` →
+`eval` until it passes → deploy the backend → `all --db`. Extensions before
+v0.4.1 don't know orange; the backend sends them red instead.
+
 ## Debugging tips
 
 | Code | Logs | How to open it |

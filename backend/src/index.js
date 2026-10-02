@@ -1,12 +1,9 @@
 import { htmlToPolicyText, policyHash } from "./policy.js";
 import { checkLicense, claimPage } from "./license.js";
+import { PROMPT_VERSION, SCHEMA, SYSTEM_PROMPT, userMessage, validResult } from "./rubric.js";
 
 const MODEL = "claude-sonnet-5";
 const EFFORT = "low";
-// Bump whenever SYSTEM_PROMPT or the schema changes: every cached rating
-// made under an older version is re-analyzed on its next request instead of
-// being served stale.
-const PROMPT_VERSION = "2026-09-27.2";
 
 const RECHECK_AFTER_MS = 24 * 60 * 60 * 1000; // re-fetch + re-hash a policy at most once a day
 const UNREADABLE_RETRY_MS = 24 * 60 * 60 * 1000; // how long to remember "couldn't read this"
@@ -26,32 +23,6 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Extension-Key",
-};
-
-// Rubric matches the product's actual question: will giving this site your
-// phone number lead to other companies contacting you? Validated against the
-// eval set (scratch eval: Sonnet 5 low effort, 100% on 15 labeled cases).
-const SYSTEM_PROMPT = `You rate a website's privacy policy for one risk: if a person gives this site their phone number or email, will it end up with third parties who contact them (sales calls, lead-gen, marketing lists, data brokers, potential scammers)?
-
-- "red": the policy says the site sells, rents, licenses or trades personal/contact data, OR shares it with third parties so those third parties can market to or contact the person (partner/lead networks, joint marketing, list exchanges). A "we don't sell" claim does not cancel a disclosure elsewhere that has this effect.
-- "yellow": no third-party solicitation, but the policy explicitly says the site itself may phone, call or text (SMS) the person for marketing, OR the policy is too vague to tell who receives the data. (The site's own marketing by email, newsletters, ads for its own products, or "marketing communications"/"direct marketing" with no mention of calls or texts does NOT count — people accept those; treat them as green.)
-- "green": data goes only to service providers, affiliates or subcontractors acting on the site's behalf (hosting, payments, delivery, support, legal compliance); no sale and no third-party marketing.
-
-Ignore text that only describes a user's legal rights (e.g. "the right to know the categories of third parties we sell to") — judge only first-person statements of what the company actually does. Ignore navigation menus and page chrome.
-Set is_privacy_policy to false if the text is not actually a privacy policy (e.g. a landing page that only links to one, a login wall, or an unrelated page); the rating is then ignored.
-quoted_evidence must be verbatim sentences from the policy (empty if none).`;
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["is_privacy_policy", "rating", "confidence", "reasoning", "quoted_evidence"],
-  properties: {
-    is_privacy_policy: { type: "boolean" },
-    rating: { type: "string", enum: ["red", "yellow", "green"] },
-    confidence: { type: "number" },
-    reasoning: { type: "string" },
-    quoted_evidence: { type: "array", items: { type: "string" } },
-  },
 };
 
 // Shown when we can't give a rating, so the user can check the policy
@@ -137,7 +108,7 @@ async function classifyWithClaude(domain, policyText, apiKey) {
       model: MODEL,
       max_tokens: 8000,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: `Domain: ${domain}\n\nPrivacy policy text:\n${policyText}` }],
+      messages: [{ role: "user", content: userMessage(domain, policyText) }],
       output_config: { effort: EFFORT, format: { type: "json_schema", schema: SCHEMA } },
     }),
   });
@@ -149,7 +120,9 @@ async function classifyWithClaude(domain, policyText, apiKey) {
   if (data.stop_reason !== "end_turn") throw new Error(`unexpected stop_reason: ${data.stop_reason}`);
   const textBlock = data.content.find((b) => b.type === "text");
   if (!textBlock) throw new Error("No text block in Claude response");
-  return JSON.parse(textBlock.text);
+  const result = JSON.parse(textBlock.text);
+  if (!validResult(result)) throw new Error("Claude returned an invalid result");
+  return result;
 }
 
 async function getCount(kv, key) {
@@ -240,20 +213,51 @@ async function rate(env, caller, domain, policyUrlRaw, adminHtml = null) {
   await incrementCount(env.RATINGS_KV, globalKey, callsToday);
   await incrementCount(env.RATINGS_KV, ipKey, ipCallsToday);
 
-  const base = {
-    ratedDomain,
-    policyUrl: (record?.policyUrl ?? policyUrl.toString()),
-    hash,
-    promptVersion: PROMPT_VERSION,
-    model: MODEL,
-    analyzedAt: now,
-    checkedAt: now,
-  };
+  const next = await storeAnalysis(env, { ratedDomain, policyUrl: record?.policyUrl ?? policyUrl.toString(), hash, model: MODEL, result });
+  return publicView(next, { cached: false });
+}
+
+async function storeAnalysis(env, { ratedDomain, policyUrl, hash, model, result }) {
+  const now = Date.now();
+  const base = { ratedDomain, policyUrl, hash, promptVersion: PROMPT_VERSION, model, analyzedAt: now, checkedAt: now };
   const next = result.is_privacy_policy
     ? { ...base, rating: result.rating, confidence: result.confidence, reasoning: result.reasoning, quoted_evidence: result.quoted_evidence }
     : { ...base, ...unknown("not_a_policy") };
-  await env.RATINGS_KV.put(key, JSON.stringify(next), { expirationTtl: RECORD_TTL_SECONDS });
-  return publicView(next, { cached: false });
+  await env.RATINGS_KV.put(`site:${ratedDomain}`, JSON.stringify(next), { expirationTtl: RECORD_TTL_SECONDS });
+  return next;
+}
+
+// dev/pipeline: store a rating made by headless Claude Code. The policy page
+// comes along so the hash is computed here, the same way as for live checks.
+async function adminStoreRating(env, body) {
+  const policyUrl = parsePolicyUrl(body.policyUrl);
+  if (!policyUrl || typeof body.policyHtml !== "string") return { error: "policyUrl and policyHtml required" };
+  if (body.promptVersion !== PROMPT_VERSION) return { error: `rated with prompt ${body.promptVersion}, backend is on ${PROMPT_VERSION}` };
+  if (!validResult(body.result)) return { error: "invalid result" };
+  const fetched = policyTextFromHtml(body.policyHtml);
+  if (fetched.error) return { error: fetched.error };
+  const ratedDomain = policyUrl.hostname.toLowerCase().replace(/^www\./, "");
+  const model = `claude-code:${String(body.model || "unknown").slice(0, 40)}`;
+  return storeAnalysis(env, { ratedDomain, policyUrl: policyUrl.toString(), hash: await policyHash(fetched.text), model, result: body.result });
+}
+
+// dev/pipeline: every rated site, so the whole database can be re-rated.
+async function adminListSites(env) {
+  const sites = [];
+  let cursor;
+  do {
+    const page = await env.RATINGS_KV.list({ prefix: "site:", cursor });
+    for (const k of page.keys) sites.push(k.name.slice(5));
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  const records = await Promise.all(sites.map((d) => env.RATINGS_KV.get(`site:${d}`, "json")));
+  return records.filter(Boolean).map(({ ratedDomain, policyUrl, rating, reason, promptVersion, model }) => ({ ratedDomain, policyUrl, rating, reason, promptVersion, model }));
+}
+
+// Extensions before v0.4.1 only know red/yellow/green: they show orange as
+// red (they don't send ratingLevels).
+function forClient(result, body) {
+  return result.rating === "orange" && body.ratingLevels !== 4 ? { ...result, rating: "red" } : result;
 }
 
 function readDomain(value) {
@@ -283,7 +287,7 @@ export default {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Not found" }, 404);
     }
-    if (!["/rate", "/license/validate"].includes(url.pathname)) {
+    if (!["/rate", "/license/validate", "/admin/rating", "/admin/sites"].includes(url.pathname)) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
@@ -295,8 +299,8 @@ export default {
     }
 
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
-    // Our own seeding script (dev/seed.mjs) pre-rates popular sites: it skips
-    // the per-IP limits below, but never the global daily LLM cap.
+    // Our own pipeline (dev/pipeline) pre-rates popular sites: it skips the
+    // per-IP limits below, but never the global daily LLM cap.
     const admin = Boolean(env.ADMIN_KEY) && request.headers.get("X-Admin-Key") === env.ADMIN_KEY;
 
     // Burst protection: no single IP can hammer these endpoints (this also
@@ -321,7 +325,14 @@ export default {
         const paid = body.licenseKey ? (await checkLicense(env, body.licenseKey)).valid : false;
         const adminHtml = admin && typeof body.policyHtml === "string" ? body.policyHtml : null;
         const result = await rate(env, { ip: clientIp, paid: paid || admin, admin }, domain, policyUrl, adminHtml);
-        return jsonResponse({ ...result, plan: paid ? "plus" : "free" });
+        return jsonResponse({ ...forClient(result, body), plan: paid ? "plus" : "free" });
+      }
+
+      if (url.pathname.startsWith("/admin/")) {
+        if (!admin) return jsonResponse({ error: "Unauthorized" }, 401);
+        if (url.pathname === "/admin/sites") return jsonResponse({ promptVersion: PROMPT_VERSION, sites: await adminListSites(env) });
+        const stored = await adminStoreRating(env, body);
+        return jsonResponse(stored, stored.error ? 400 : 200);
       }
 
       // /license/validate

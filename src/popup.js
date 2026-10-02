@@ -1,5 +1,6 @@
 const STATUS_TEXT = {
   green: "Looks safe — your details only go to companies working for this site.",
+  orange: "Heads up — this site may use your details to send you other companies' offers, though it doesn't say it hands your number to them.",
   yellow: "Some caution — the site may call or text you itself, or its policy is unclear about who gets your data.",
   red: "Warning — this site may sell your number or pass it to companies that will contact you.",
   unknown: "Couldn't check this site's privacy policy automatically. Here's what to look for:",

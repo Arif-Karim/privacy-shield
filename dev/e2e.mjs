@@ -87,7 +87,7 @@ await check("checked site: rating comes from the database, no paywall", async ()
     await page.waitForTimeout(500);
     result = await tabResult(page);
   }
-  assert(result && ["green", "yellow", "red"].includes(result.rating), `stored result: ${JSON.stringify(result)}`);
+  assert(result && ["green", "yellow", "orange", "red"].includes(result.rating), `stored result: ${JSON.stringify(result)}`);
   await page.close();
 });
 

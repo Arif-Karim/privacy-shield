@@ -37,6 +37,7 @@ WHAT IT DOES
 • Notices when a form asks for your phone number.
 • Reads that site's own privacy policy with AI (the Claude API) and tells you, in plain English, who your number may end up with:
    Red: the site may sell it or share it with companies that will contact you
+   Orange: the site may send you other companies' offers, without handing your number to them
    Yellow: the site may call or text you itself, or the policy is unclear
    Green: your details only go to companies working for the site
 • Shows the actual sentence from their policy as evidence, with a link to read the whole thing.

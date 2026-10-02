@@ -1,0 +1,13 @@
+domain,expected,why
+youi.com.au,yellow,"calls/texts you itself; ""lead generators"" are a source it collects through, not recipients"
+compareclub.com.au,red,lead-gen comparison site; suppliers get your details
+finder.com.au,red,partners receive quote enquiries and contact you
+telstra.com.au,orange,Telstra itself sends you trusted partners' offers; partners don't get your details
+commbank.com.au,red,Strategic Referral Partners may contact you
+geico.com,red,shares data with joint-marketing financial institutions
+davidjones.com,red,shares with in-store third-party brands for their direct marketing
+bigw.com.au,orange,Everyday Rewards partner offers and ad-platform sharing; no hand-over to call you
+anz.com.au,orange,"""enable our business partners to let you know"" about their products"
+hellofresh.com.au,orange,audience matching and targeted ads with third parties
+mozilla.org,green,service providers only
+anthropic.com,green,service providers only

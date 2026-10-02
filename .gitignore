@@ -10,3 +10,5 @@ backend/.dev.vars
 
 # Dev tooling
 dev/node_modules/
+
+dev/pipeline/cache/

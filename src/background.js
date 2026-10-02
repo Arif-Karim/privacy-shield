@@ -20,11 +20,12 @@ const OFFLINE_GUIDANCE = [
 ];
 
 // Rating is shown via a small corner dot baked into the icon itself (see
-// icons/icon{16,48,128}-{red,yellow,green}.png), not the runtime badge API —
+// icons/icon{16,48,128}-{red,orange,yellow,green}.png), not the runtime badge API —
 // chrome.action's text badge forces a minimum pill width that, on a 16px
 // icon, ends up covering half the icon like an oversized stamp.
 const ICON_PATHS = {
   red: { 16: "icons/icon16-red.png", 48: "icons/icon48-red.png", 128: "icons/icon128-red.png" },
+  orange: { 16: "icons/icon16-orange.png", 48: "icons/icon48-orange.png", 128: "icons/icon128-orange.png" },
   yellow: { 16: "icons/icon16-yellow.png", 48: "icons/icon48-yellow.png", 128: "icons/icon128-yellow.png" },
   green: { 16: "icons/icon16-green.png", 48: "icons/icon48-green.png", 128: "icons/icon128-green.png" },
 };
@@ -53,13 +54,8 @@ async function loadIconVariant(pathsBySize) {
 }
 
 const iconImageDataPromise = (async () => {
-  const [base, red, yellow, green] = await Promise.all([
-    loadIconVariant(BASE_ICON_PATH),
-    loadIconVariant(ICON_PATHS.red),
-    loadIconVariant(ICON_PATHS.yellow),
-    loadIconVariant(ICON_PATHS.green),
-  ]);
-  return { base, red, yellow, green };
+  const entries = await Promise.all(Object.entries({ base: BASE_ICON_PATH, ...ICON_PATHS }).map(async ([name, paths]) => [name, await loadIconVariant(paths)]));
+  return Object.fromEntries(entries);
 })();
 
 async function api(path, body) {
@@ -84,7 +80,8 @@ async function getTabState(tabId) {
 async function getRating(domain, privacyPolicyUrl) {
   try {
     const { licenseKey } = await chrome.storage.local.get("licenseKey");
-    const { res, data } = await api("/rate", { domain, policyUrl: privacyPolicyUrl, licenseKey });
+    // ratingLevels: this version understands "orange" (older ones get it as red).
+    const { res, data } = await api("/rate", { domain, policyUrl: privacyPolicyUrl, licenseKey, ratingLevels: 4 });
     if (!res.ok || data.error) throw new Error(data.error || `backend responded ${res.status}`);
     console.log(LOG, "rating for", domain, "=", data.rating, data.reason || "", "(cached:", data.cached, ")");
     return data;

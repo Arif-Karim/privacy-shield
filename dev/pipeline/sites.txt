@@ -1,6 +1,5 @@
-# Sites to pre-rate with dev/seed.mjs: popular sites whose forms ask for a
-# phone number. One domain per line; the script finds each privacy policy link.
-
+# Extra sites for the pipeline to rate (dev/pipeline/run.mjs): popular sites
+# whose forms ask for a phone number. One domain per line.
 # AU car, home and travel insurance
 aami.com.au
 allianz.com.au
