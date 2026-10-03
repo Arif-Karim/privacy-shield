@@ -80,6 +80,44 @@ async function get(url) {
   }
 }
 
+// Fallback for pages that build their content in JavaScript or turn away
+// plain fetches: load them in headless Chromium (Playwright, from dev/).
+let browser;
+// Some pages never settle (or hang the browser), so cap each one.
+function render(url) {
+  const timeout = new Promise((done) => setTimeout(() => done({ ok: false, status: "browser timed out" }), 60000).unref());
+  return Promise.race([renderPage(url), timeout]);
+}
+
+async function renderPage(url) {
+  try {
+    browser ??= await (await import("playwright")).chromium.launch();
+    const context = await browser.newContext({ userAgent: UA, locale: "en-US" });
+    const page = await context.newPage();
+    try {
+      const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
+      const ok = Boolean(res?.ok());
+      return { ok, status: res?.status() ?? "no response", url: page.url(), html: ok ? await page.content() : "", rendered: true };
+    } finally {
+      await context.close();
+    }
+  } catch (err) {
+    return { ok: false, status: String(err.message || err).split("\n")[0] };
+  }
+}
+
+const enoughText = (html) => htmlToPolicyText(html).length >= MIN_POLICY_CHARS;
+
+// Plain fetch first (fast), then the browser if it fails or the text is
+// too short to rate.
+async function getPolicyPage(url) {
+  const page = await get(url);
+  if (page.ok && enoughText(page.html)) return page;
+  const rendered = await render(url);
+  return rendered.ok ? rendered : page;
+}
+
 // Mirrors findPrivacyPolicyUrl() in src/content.js, preferring links that
 // say "policy" when there are several.
 function findPolicyLink(html, base) {
@@ -98,10 +136,17 @@ function findPolicyLink(html, base) {
 
 async function findPolicyUrl(domain) {
   for (const home of [`https://www.${domain}/`, `https://${domain}/`]) {
-    const page = await get(home);
+    let page = await get(home);
+    let link = page.ok && findPolicyLink(page.html, page.url);
+    if (!link) {
+      const rendered = await render(home);
+      if (rendered.ok) {
+        page = rendered;
+        link = findPolicyLink(page.html, page.url);
+      }
+    }
     if (!page.ok) continue;
-    const link = findPolicyLink(page.html, page.url);
-    if (link) return { policyUrl: link, foundBy: "homepage link" };
+    if (link) return { policyUrl: link, foundBy: page.rendered ? "homepage link (browser)" : "homepage link" };
     // Homepages built entirely in JavaScript have no links in their HTML.
     for (const path of ["/privacy-policy", "/privacy", "/legal/privacy"]) {
       const guess = await get(new URL(path, page.url).toString());
@@ -122,14 +167,16 @@ async function discover(only = ONLY) {
   let done = 0;
   await inParallel(ids, 6, async (id) => {
     const meta = loadMeta(id);
-    if (!flag("force") && meta.fetchedAt && Date.now() - meta.fetchedAt < FRESH_FETCH_MS && existsSync(htmlPath(id))) return;
+    const fresh = meta.fetchedAt && Date.now() - meta.fetchedAt < FRESH_FETCH_MS && existsSync(htmlPath(id));
+    if (!flag("force") && fresh && enoughText(readFileSync(htmlPath(id), "utf8"))) return;
     const found = known.has(id) ? { policyUrl: known.get(id), foundBy: "database" } : await findPolicyUrl(id);
     meta.fetchedAt = Date.now();
     if (found.error) {
       Object.assign(meta, { policyUrl: null, fetchError: found.error });
     } else {
-      const page = await get(found.policyUrl);
-      Object.assign(meta, { policyUrl: found.policyUrl, foundBy: found.foundBy, fetchError: page.ok ? null : `policy page: ${page.status}` });
+      const page = await getPolicyPage(found.policyUrl);
+      const foundBy = page.rendered ? `${found.foundBy}, rendered` : found.foundBy;
+      Object.assign(meta, { policyUrl: found.policyUrl, foundBy, fetchError: page.ok ? null : `policy page: ${page.status}`, rateError: null });
       if (page.ok) writeFileSync(htmlPath(id), page.html.slice(0, 3_000_000));
     }
     saveMeta(meta);
@@ -242,8 +289,8 @@ async function followHub(meta) {
     } catch {}
   }
   for (const url of candidates.slice(0, 3)) {
-    const page = await get(url);
-    if (!page.ok || htmlToPolicyText(page.html).length < MIN_POLICY_CHARS) continue;
+    const page = await getPolicyPage(url);
+    if (!page.ok || !enoughText(page.html)) continue;
     writeFileSync(htmlPath(meta.id), page.html.slice(0, 3_000_000));
     Object.assign(meta, { hubUrl: meta.policyUrl, policyUrl: page.url, foundBy: `${meta.foundBy} → followed hub` });
     return true;
@@ -329,3 +376,5 @@ if (!commands[cmd]) {
   process.exit(1);
 }
 await commands[cmd]();
+await Promise.race([browser?.close(), new Promise((done) => setTimeout(done, 5000).unref())]);
+process.exit();
