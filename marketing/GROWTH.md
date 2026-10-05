@@ -9,8 +9,10 @@ that stops spam calls at the source fits their audience exactly. Big ones
 (Kitboga, Scammer Payback, Jim Browning) get hundreds of pitches a week, so
 try them too but don't count on them.
 
-Offer: free lifetime supporter keys for them and a giveaway batch for their
-viewers, plus a mention in our README/site. No payment at first.
+Offer: their own supporter link paying them 50% of supporter subscriptions
+from their viewers for the first year, plus free supporter keys to give away.
+When one says yes, create a dedicated Stripe payment link per creator to
+track their sales. Techlore and Jim Browning get a review-only ask (no money).
 
 Channels (status as of 2026-10-05):
 
@@ -19,11 +21,11 @@ Channels (status as of 2026-10-05):
 | Trilogy Media | info@trilogymedia.com | Gmail draft ready |
 | Kitboga | hello@kitbogashow.com | Gmail draft ready |
 | Techlore | contact@techlore.tech | Gmail draft ready (framed as "please review", per their protocols) |
-| Scammer Payback | business email on YouTube About page (behind a captcha) | to find |
-| Pleasant Green | YouTube About page | to find |
-| Jim Browning | YouTube About page | to find |
-| NBTV (Naomi Brockwell) | nbtv.media contact form | to find |
-| ScammerRevolts | YouTube About page | to find |
+| Scammer Payback | tipline@scammerpayback.org (tipline, not business) | Gmail draft ready |
+| Pleasant Green | pleasantgreenpictures@gmail.com | Gmail draft ready |
+| Jim Browning | form at techsupportscam.com/contact | message written, send via form |
+| NBTV (Naomi Brockwell) | nbtv.media contact form (not nbntv.com.au, that's NBN Television) | to find |
+| ScammerRevolts | contact@scammerrevolts.com | Gmail draft ready |
 | Atomic Shrimp | — | skip: asks not to be contacted about commercial collaborations |
 
 ### Outreach email
