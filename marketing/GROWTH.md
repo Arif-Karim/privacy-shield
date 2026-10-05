@@ -12,23 +12,19 @@ try them too but don't count on them.
 Offer: free lifetime supporter keys for them and a giveaway batch for their
 viewers, plus a mention in our README/site. No payment at first.
 
-Channels to check (subscriber counts and contact emails still to verify on
-each channel's About page):
+Channels (status as of 2026-10-05):
 
-| Channel | Why it fits |
-|---|---|
-| Atomic Shrimp | Gentle scam-baiting, audience of ordinary people |
-| Pleasant Green | Scam-baiting, regular viewer Q&A |
-| ScammerRevolts | Scam call-centre takedowns |
-| Trilogy Media | Scam-baiting, "how they got your number" angle |
-| Lenny / Jolly Roger Telephone | Telemarketer time-wasting, very on-topic |
-| Naomi Brockwell (NBTV) | Consumer privacy, practical tools |
-| Techlore | Privacy tools reviews |
-| All Things Secured | Beginner-friendly privacy tips |
-| The Hated One | Data brokers / surveillance |
-| Kitboga | Huge, long shot |
-| Scammer Payback | Huge, long shot |
-| Jim Browning | Huge, long shot |
+| Channel | Contact | Status |
+|---|---|---|
+| Trilogy Media | info@trilogymedia.com | Gmail draft ready |
+| Kitboga | hello@kitbogashow.com | Gmail draft ready |
+| Techlore | contact@techlore.tech | Gmail draft ready (framed as "please review", per their protocols) |
+| Scammer Payback | business email on YouTube About page (behind a captcha) | to find |
+| Pleasant Green | YouTube About page | to find |
+| Jim Browning | YouTube About page | to find |
+| NBTV (Naomi Brockwell) | nbtv.media contact form | to find |
+| ScammerRevolts | YouTube About page | to find |
+| Atomic Shrimp | — | skip: asks not to be contacted about commercial collaborations |
 
 ### Outreach email
 
